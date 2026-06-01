@@ -1,0 +1,4 @@
+=== Resumo de Métricas - UMD ===
+MobileNetV2: Acurácia = 33.33%
+EfficientNet: Acurácia = 33.33%
+MobileNet_XGB: Acurácia = 56.25%

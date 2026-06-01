@@ -1,0 +1,4 @@
+=== Resumo de Métricas - Trace ===
+MobileNetV2: Acurácia = 19.00%
+EfficientNet: Acurácia = 28.00%
+MobileNet_XGB: Acurácia = 87.00%

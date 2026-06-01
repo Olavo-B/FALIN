@@ -1,0 +1,8 @@
+=== FPGA Hardware Metrics (Thop) ===
+Tamanho da Imagem de Entrada GAF: 1x1x80x80
+------------------------------------------------------------
+Modelo               | MACs (Mega)     | Params (Mega)  
+------------------------------------------------------------
+MobileNetV2          |      45.20 M   |       2.23 M
+EfficientNet         |      57.69 M   |       3.91 M
+MobileNet_XGB        |      14.00 M   |       0.77 M

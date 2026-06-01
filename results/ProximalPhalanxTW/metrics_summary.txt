@@ -1,0 +1,4 @@
+=== Resumo de Métricas - ProximalPhalanxTW ===
+MobileNetV2: Acurácia = 56.10%
+EfficientNet: Acurácia = 70.73%
+MobileNet_XGB: Acurácia = 74.63%

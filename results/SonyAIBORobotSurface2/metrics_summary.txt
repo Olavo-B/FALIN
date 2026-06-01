@@ -1,0 +1,4 @@
+=== Resumo de Métricas - SonyAIBORobotSurface2 ===
+MobileNetV2: Acurácia = 38.30%
+EfficientNet: Acurácia = 61.70%
+MobileNet_XGB: Acurácia = 64.11%

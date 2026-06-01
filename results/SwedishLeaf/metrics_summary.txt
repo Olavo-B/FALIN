@@ -1,0 +1,4 @@
+=== Resumo de Métricas - SwedishLeaf ===
+MobileNetV2: Acurácia = 36.96%
+EfficientNet: Acurácia = 72.48%
+MobileNet_XGB: Acurácia = 59.84%

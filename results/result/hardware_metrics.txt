@@ -1,0 +1,4 @@
+=== FPGA Hardware Metrics (Hybrid CNN) ===
+Modelo			MACs (Mega)	Parâmetros (Mega)
+------------------------------------------------------------
+MobileNetV2_Cut     	32.05 M		0.85 M
