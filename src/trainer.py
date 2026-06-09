@@ -26,14 +26,15 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, e
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     model.to(device)
     
-    # Progresso das Épocas
-    for epoch in range(epochs):
+    # Progresso por Épocas (A barra enche a cada época completada)
+    pbar_epochs = tqdm(range(epochs), desc=f"[{model_name}] A treinar", leave=False)
+    
+    for epoch in pbar_epochs:
         model.train()
         running_loss = 0.0
         
-        # Progresso dos Batches (leave=False para limpar a barra quando acabar)
-        pbar = tqdm(train_loader, desc=f"[{model_name}] Época {epoch+1}/{epochs}", leave=False)
-        for batch_X, batch_y in pbar:
+        # Iteração sobre os batches silenciosamente (sem barra individual)
+        for batch_X, batch_y in train_loader:
             batch_X = batch_X.unsqueeze(1).to(device)
             batch_y = batch_y.to(device)
             
@@ -44,15 +45,18 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, e
             optimizer.step()
             
             running_loss += loss.item()
-            pbar.set_postfix({'loss': f"{loss.item():.4f}"})
+            
+        # Calcula a perda média da época
+        avg_loss = running_loss / len(train_loader)
+        
+        # Atualiza a barra de épocas com a perda atual
+        pbar_epochs.set_postfix({'loss': f"{avg_loss:.4f}"})
             
         # Log da Loss no TensorBoard
         if tb_writer:
-            tb_writer.add_scalar(f'Loss/train', running_loss/len(train_loader), epoch)
-        
-        # 
+            tb_writer.add_scalar('Loss/train', avg_loss, epoch)
 
-    # Avaliação no Teste
+    # Avaliação no Teste (Ocorre após todas as épocas)
     model.eval()
     all_preds = []
     all_targets = []
@@ -69,10 +73,11 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, e
         for name, param in model.named_parameters():
             tb_writer.add_histogram(f'Pesos/{name}', param.clone().cpu().data.numpy(), epochs)
     
-
     return model, all_targets, all_preds
 
-def run_experiment(train_loader, test_loader, num_classes, device, results_dir, epochs=5, models_to_run=['MobileNetV2', 'EfficientNet', 'MobileNet_XGB']):
+def run_experiment(train_loader, test_loader, num_classes, device, results_dir, 
+                   epochs=5, models_to_run=['MobileNetV2', 'EfficientNet', 'MobileNet_XGB'],
+                   descriptor_size=256, n_estimators=100, max_depth=5, learning_rate_xgb=0.1):
     """
     Executa o treinamento de TODOS os modelos e retorna as previsões para gerar as métricas.
     """
@@ -106,7 +111,10 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir, 
         # ---------------------------------------------------------
         # O pipeline treina a CNN extratora primeiro e depois ajusta o XGBoost
         tb_writer_xgb = SummaryWriter(log_dir=f"{results_dir}/tensorboard/MobileNet_XGB")
-        pipeline_xgb = PipelineMobileNetXGB(num_classes=num_classes, in_channels=1, descriptor_size=64, device=device)
+        pipeline_xgb = PipelineMobileNetXGB(num_classes=num_classes, in_channels=1, 
+                                            descriptor_size=descriptor_size, device=device, 
+                                            n_estimators=n_estimators, max_depth=max_depth, 
+                                            learning_rate=learning_rate_xgb)
         
         # Treina o extrator da CNN
         pipeline_xgb.cnn_extractor, _, _ = train_standard_model(

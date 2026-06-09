@@ -1,8 +1,11 @@
 # /*****************************************************************************/
 #  * File: main.py
 #  * Author: Olavo Alves Barros Silva
-#  * Description: Orquestrador principal. Itera sobre a base UCR, treina 
-#  * modelos, calcula MACs, salva Matrizes de Confusão e logs TensorBoard.
+#  * Contact: olavo.barros@ufv.com
+#  * Date: 2026-05-20
+#  * License: MIT License
+#  * Description: Main file for running experiments on UCR datasets using the 
+#  * Temporal2Image approach and various models.
 # /*****************************************************************************/
 
 import os
@@ -15,7 +18,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 
-# Import cálculo de Hardware (MACs/Params)
+# Import for hardware complexity analysis (THOP)
 try:
     from thop import profile
     THOP_AVAILABLE = True
@@ -25,7 +28,32 @@ except ImportError:
 from temporal2img import Temporal2ImageDataset
 from trainer import run_experiment
 
-# Wrapper do Dataset para retornar Imagem GAF e Label
+
+
+# ---- Global Constants and Configurations ----
+# (You can adjust these as needed, or move them to a config file)
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+EPOCHS = 3000
+BATCH_SIZE = 16
+LEARNING_RATE = 0.001
+MODELS_TO_RUN = ['MobileNet_XGB', 'MobileNetV2', 'EfficientNet']  # Options: 'MobileNetV2', 'EfficientNet', 'MobileNet_XGB'
+IMG_STRATEGY = 'gaf'  # Options: 'gaf', 'stft'
+
+# XGBoost Hyperparameters (can be tuned for better performance)
+N_ESTIMATORS = 100
+MAX_DEPTH = 10
+LEARNING_RATE_XGB = 0.1
+DESCRIPTOR_SIZE = 1024
+
+DATASET = 'ElectricDevices'  # Change this to the dataset you want to run (e.g., 'InlineSkate', 'ElectricDevices', etc.)
+
+
+# -------------------------------------------
+
+
+# Wrapper of Temporal2ImageDataset to work with UCR's (X, y) format and be compatible with DataLoader
 class UCRDatasetWrapper(torch.utils.data.Dataset):
     def __init__(self, X, y, strategy='gaf'):
         self.X_dataset = Temporal2ImageDataset(X, estrategy=strategy)
@@ -36,7 +64,7 @@ class UCRDatasetWrapper(torch.utils.data.Dataset):
         return self.X_dataset[idx], self.y[idx]
 
 def load_and_encode_ucr(train_path, test_path):
-    """Carrega dados e normaliza os labels de 0 a Num_Classes-1."""
+    """Load UCR datasets and normalize labels to integers using LabelEncoder."""
     train_data = np.loadtxt(train_path, delimiter='\t')
     test_data = np.loadtxt(test_path, delimiter='\t')
     
@@ -50,7 +78,7 @@ def load_and_encode_ucr(train_path, test_path):
     return X_train, y_train, X_test, y_test, len(le.classes_), le.classes_
 
 def save_confusion_matrix(y_true, y_pred, classes, dataset_name, model_name, save_dir):
-    """Gera e salva a Matriz de Confusão em formato PNG."""
+    """Generate and save a confusion matrix plot."""
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
@@ -63,7 +91,7 @@ def save_confusion_matrix(y_true, y_pred, classes, dataset_name, model_name, sav
     plt.close()
 
 def save_hardware_complexity(models_dict, seq_length, save_dir, device):
-    """Calcula e salva os MACs e Params se THOP estiver disponível."""
+    """Calculate and save MACs and Params if THOP is available."""
     if not THOP_AVAILABLE:
         return
         
@@ -72,14 +100,13 @@ def save_hardware_complexity(models_dict, seq_length, save_dir, device):
     
     with open(filepath, 'w') as f:
         f.write("=== FPGA Hardware Metrics (Thop) ===\n")
-        f.write(f"Tamanho da Imagem de Entrada GAF: 1x1x{seq_length}x{seq_length}\n")
+        f.write(f"Input size: 1x1x{seq_length}x{seq_length}\n")
         f.write("-" * 60 + "\n")
-        f.write(f"{'Modelo':<20} | {'MACs (Mega)':<15} | {'Params (Mega)':<15}\n")
+        f.write(f"{'Model':<20} | {'MACs (Mega)':<15} | {'Params (Mega)':<15}\n")
         f.write("-" * 60 + "\n")
         
         for model_name, data in models_dict.items():
             model = data['model']
-            # Para o pipeline XGB, precisamos passar só o extrator CNN para o thop
             if model_name == 'MobileNet_XGB':
                 macs, params = profile(model.cnn_extractor, inputs=(dummy_input, ), verbose=False)
             else:
@@ -92,22 +119,19 @@ def main():
     ucr_archive_path = os.path.join(base_dir, 'misc', 'data', 'UCRArchive_2018')
     global_results_dir = os.path.join(base_dir, 'results')
     
-    # Lista todos os datasets disponíveis na pasta
+
     if not os.path.exists(ucr_archive_path):
         print(f"ERRO: Pasta {ucr_archive_path} não encontrada.")
         return
         
-    # Pega apenas as pastas (ignorando arquivos como .zip)
     datasets = [d for d in os.listdir(ucr_archive_path) if os.path.isdir(os.path.join(ucr_archive_path, d))]
     
-    # Para testes iniciais, você pode querer forçar apenas um dataset. 
-    # Comente a linha abaixo para rodar em todos.
-    datasets = [d for d in datasets if d == 'CBF'] 
+    # For testing purposes, we can filter to a specific dataset. Remove this line to process all datasets.
+    datasets = [d for d in datasets if d == DATASET] 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[*] A usar o dispositivo: {device}\n")
     
-    # Loop Principal iterando sobre os Datasets
     pbar_datasets = tqdm(datasets, desc="Progresso Global (Datasets)", position=0)
     for dataset_name in pbar_datasets:
         
@@ -117,27 +141,29 @@ def main():
         if not os.path.exists(train_path) or not os.path.exists(test_path):
             continue
             
-        # Cria a subpasta de resultados exclusiva para este dataset
         ds_results_dir = os.path.join(global_results_dir, dataset_name)
         os.makedirs(ds_results_dir, exist_ok=True)
         
-        # Carrega e processa os dados
         X_train, y_train, X_test, y_test, num_classes, orig_classes = load_and_encode_ucr(train_path, test_path)
         seq_length = X_train.shape[1]
         
-        train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, 'gaf'), batch_size=16, shuffle=True)
-        test_loader = DataLoader(UCRDatasetWrapper(X_test, y_test, 'gaf'), batch_size=16   , shuffle=False)
+        train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, IMG_STRATEGY), batch_size=BATCH_SIZE, shuffle=True)
+        test_loader = DataLoader(UCRDatasetWrapper(X_test, y_test, IMG_STRATEGY), batch_size=BATCH_SIZE   , shuffle=False)
         
-        # --- TREINAMENTO (Chama o trainer.py) ---
-        # Definindo poucas épocas por padrão para teste. Suba para 30~50 num treino final.
+        # --- TRAINING (calls trainer.py) ---
         results_dict = run_experiment(
-            train_loader, test_loader, num_classes, device, ds_results_dir, epochs=10,
-            models_to_run=['MobileNetV2']
+            train_loader, test_loader, num_classes, device, ds_results_dir, 
+            epochs=EPOCHS,
+            models_to_run=MODELS_TO_RUN,
+            descriptor_size=DESCRIPTOR_SIZE,
+            n_estimators=N_ESTIMATORS,
+            max_depth=MAX_DEPTH,
+            learning_rate_xgb=LEARNING_RATE_XGB
         )
         
-        # --- SALVAR ARTEFATOS ---
+        # --- SAVE ARTIFACTS ---
         for model_name, result_data in results_dict.items():
-            # 1. Salvar Matriz de Confusão
+            # 1. Confusion Matrix
             save_confusion_matrix(
                 result_data['y_true'], 
                 result_data['y_pred'], 
@@ -147,12 +173,12 @@ def main():
                 ds_results_dir
             )
             
-        # 2. Salvar Complexidade Computacional MACs
+        # 2. Computacional Complexity (MACs and Params)
         save_hardware_complexity(results_dict, seq_length, ds_results_dir, device)
 
-        # 3. Salvar um .txt com as métricas de acurácia (pode ser expandido para incluir mais métricas)
+        # 3. Save a .txt with the accuracy metrics (can be expanded to include more metrics)
         with open(os.path.join(ds_results_dir, 'metrics_summary.txt'), 'w') as f:
-            f.write(f"=== Resumo de Métricas - {dataset_name} ===\n")
+            f.write(f"=== Metrics Summary - {dataset_name} ===\n")
             for model_name, result_data in results_dict.items():
                 y_true = result_data['y_true']
                 y_pred = result_data['y_pred']

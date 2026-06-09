@@ -59,7 +59,8 @@ class CompressedFeatureExtractor(nn.Module):
 
 
 class PipelineMobileNetXGB:
-    def __init__(self, num_classes=3, in_channels=1, descriptor_size=64, device='cpu'):
+    def __init__(self, num_classes=3, in_channels=1, descriptor_size=64, device='cpu',
+                 n_estimators=100, max_depth=5, learning_rate=0.1):
         """
         Main class that manages the training of the CNN and XGBoost.
         """
@@ -76,9 +77,9 @@ class PipelineMobileNetXGB:
         
         # Instantiate XGBoost (Hyperparameters controlled to prevent giant trees)
         self.xgb_model = xgb.XGBClassifier(
-            n_estimators=50,        # Number of trees
-            max_depth=4,             # Max depth (4 is FPGA-friendly)
-            learning_rate=0.1,
+            n_estimators=n_estimators,        # Number of trees
+            max_depth=max_depth,             # Max depth (4 is FPGA-friendly)
+            learning_rate=learning_rate,
             objective='multi:softmax',
             num_class=num_classes,
             use_label_encoder=False,
