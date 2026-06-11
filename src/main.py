@@ -35,8 +35,8 @@ from trainer import run_experiment
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-EPOCHS = 3000
-BATCH_SIZE = 16
+EPOCHS = 10
+BATCH_SIZE = 8
 LEARNING_RATE = 0.001
 MODELS_TO_RUN = ['MobileNet_XGB', 'MobileNetV2', 'EfficientNet']  # Options: 'MobileNetV2', 'EfficientNet', 'MobileNet_XGB'
 IMG_STRATEGY = 'gaf'  # Options: 'gaf', 'stft'
@@ -47,7 +47,7 @@ MAX_DEPTH = 10
 LEARNING_RATE_XGB = 0.1
 DESCRIPTOR_SIZE = 1024
 
-DATASET = 'ElectricDevices'  # Change this to the dataset you want to run (e.g., 'InlineSkate', 'ElectricDevices', etc.)
+DATASET = None  # Change this to the dataset you want to run (e.g., 'InlineSkate', 'ElectricDevices', etc.)
 
 
 # -------------------------------------------
@@ -127,7 +127,8 @@ def main():
     datasets = [d for d in os.listdir(ucr_archive_path) if os.path.isdir(os.path.join(ucr_archive_path, d))]
     
     # For testing purposes, we can filter to a specific dataset. Remove this line to process all datasets.
-    datasets = [d for d in datasets if d == DATASET] 
+    if DATASET:
+        datasets = [d for d in datasets if d == DATASET] 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[*] A usar o dispositivo: {device}\n")
@@ -150,6 +151,17 @@ def main():
         train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, IMG_STRATEGY), batch_size=BATCH_SIZE, shuffle=True)
         test_loader = DataLoader(UCRDatasetWrapper(X_test, y_test, IMG_STRATEGY), batch_size=BATCH_SIZE   , shuffle=False)
         
+        
+        # --- INFORMATIONAL LOGGING ---
+        print(f"\n=== Dataset: {dataset_name} ===")
+        print(f"· Original Classes: {orig_classes}")
+        print(f"· Encoded Classes: {num_classes}")
+        print(f"· Train samples: {len(X_train)}, Test samples: {len(X_test)}")
+        print(f"· Sequence length: {seq_length}")
+        print(f"· Image Strategy: {IMG_STRATEGY.upper()}")
+        print(f"· Input image size: {seq_length}x{seq_length}")
+        
+        
         # --- TRAINING (calls trainer.py) ---
         results_dict = run_experiment(
             train_loader, test_loader, num_classes, device, ds_results_dir, 
@@ -161,17 +173,6 @@ def main():
             learning_rate_xgb=LEARNING_RATE_XGB
         )
         
-        # --- SAVE ARTIFACTS ---
-        for model_name, result_data in results_dict.items():
-            # 1. Confusion Matrix
-            save_confusion_matrix(
-                result_data['y_true'], 
-                result_data['y_pred'], 
-                orig_classes, 
-                dataset_name, 
-                model_name, 
-                ds_results_dir
-            )
             
         # 2. Computacional Complexity (MACs and Params)
         save_hardware_complexity(results_dict, seq_length, ds_results_dir, device)
@@ -185,6 +186,44 @@ def main():
                 acc = np.mean(np.array(y_true) == np.array(y_pred))
                 f.write(f"{model_name}: Acurácia = {acc * 100:.2f}%\n")
         
+        # 4. Get the first generated image for each model and save it (for visualization purposes)
+        # 1. Fetch the first batch from the dataloader
+        first_batch = next(iter(train_loader))
+
+        # Depending on your dataset, the loader might return a tuple of (images, labels) or just images
+        if isinstance(first_batch, (list, tuple)):
+            images = first_batch[0]
+        else:
+            images = first_batch
+
+        # 2. Extract the very first image from the batch
+        img = images[0]
+
+        # 3. Convert PyTorch tensor to NumPy array
+        if hasattr(img, 'detach'):
+            img = img.detach().cpu().numpy()
+
+        # 4. Handle dimension ordering (PyTorch C,H,W -> Matplotlib H,W,C)
+        if img.ndim == 3:
+            if img.shape[0] in [1, 3]:
+                img = np.transpose(img, (1, 2, 0))
+            if img.shape[-1] == 1:
+                img = img.squeeze(axis=-1)
+
+        # 5. Plot the image
+        plt.figure(figsize=(4, 4))
+        if img.ndim == 2:
+            plt.imshow(img, cmap='viridis')
+        else:
+            plt.imshow(img)
+
+        plt.title('Exemplo de Imagem do Dataset')
+        plt.axis('off')
+        plt.grid(False) # Turn off the grid specifically for the image
+
+        # 6. Save the figure
+        plt.savefig(os.path.join(ds_results_dir, 'dataset_example_image.png'), bbox_inches='tight')
+        plt.close()
 
 if __name__ == '__main__':
     main()

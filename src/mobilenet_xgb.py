@@ -82,7 +82,6 @@ class PipelineMobileNetXGB:
             learning_rate=learning_rate,
             objective='multi:softmax',
             num_class=num_classes,
-            use_label_encoder=False,
             eval_metric='mlogloss',
             random_state=42
         )

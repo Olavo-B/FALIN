@@ -23,8 +23,17 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, e
     Treina modelos CNN padrão (MobileNetV2 e EfficientNet).
     """
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    # Ensure model is on the correct device before creating the optimizer
+    if model is None:
+        raise ValueError("Model is None. Cannot create optimizer.")
     model.to(device)
+    try:
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
+    except Exception as e:
+        # Provide a clearer error instead of a low-level segfault
+        raise RuntimeError(f"Failed to create optimizer: {e}")
+    
+    
     
     # Progresso por Épocas (A barra enche a cada época completada)
     pbar_epochs = tqdm(range(epochs), desc=f"[{model_name}] A treinar", leave=False)
@@ -94,6 +103,8 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
         )
         tb_writer_mb.close()
         results['MobileNetV2'] = {'y_true': y_true_mb, 'y_pred': y_pred_mb, 'model': mobilenet}
+        
+        
     if 'EfficientNet' in models_to_run:
         # ---------------------------------------------------------
         # 2. EfficientNet

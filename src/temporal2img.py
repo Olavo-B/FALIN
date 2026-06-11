@@ -58,6 +58,12 @@ class Temporal2ImageDataset(Dataset):
         else:
             raise ValueError(f"Strategy '{self.estrategy}' is not supported. Try 'gaf' or 'stft'.")
 
+    def _piecewise_aggregate_approximation(self, temporal_sample):
+        """Piecewise Aggregate Approximation (PAA)
+            
+        
+        """
+
     def _gramian_encoding(self, temporal_sample):
         """This function encodes the temporal data into an image using Gramian Angular Summation Fields (GASF).
 
