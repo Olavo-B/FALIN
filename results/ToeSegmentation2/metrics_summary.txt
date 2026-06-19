@@ -1,4 +1,0 @@
-=== Resumo de Métricas - ToeSegmentation2 ===
-MobileNetV2: Acurácia = 18.46%
-EfficientNet: Acurácia = 18.46%
-MobileNet_XGB: Acurácia = 43.85%

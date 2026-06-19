@@ -1,0 +1,112 @@
+\documentclass[10pt,conference]{IEEEtran}
+
+% --- Packages ---
+\usepackage{cite}
+\usepackage{graphicx}
+\graphicspath{{figs/}} % Automatically look for images in the figs/ folder
+\usepackage[cmex10]{amsmath}
+\interdisplaylinepenalty=2500
+\usepackage{amsthm}
+\newtheorem{definition}{Definition}
+\usepackage{algorithmic}
+\usepackage{array}
+\usepackage[caption=false,font=footnotesize]{subfig}
+\usepackage{url}
+
+% --- Custom Hyphenation ---
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\begin{document}
+
+% --- Title & Authors ---
+\title{Example of IEEEtran.cls, adapted for Sibgrapi 2020}
+
+\newif\iffinal
+\finalfalse
+%\finaltrue
+\newcommand{\cmtid}{99999}
+
+\iffinal
+  \author{
+    \IEEEauthorblockN{First Author}
+    \IEEEauthorblockA{Department of Computer Science\\
+    University Name\\
+    City, Country\\
+    Email: author1@example.com}
+    \and
+    \IEEEauthorblockN{Second Author}
+    \IEEEauthorblockA{Department of Computer Science\\
+    University Name\\
+    City, Country\\
+    Email: author2@example.com}
+  }
+\else
+  \author{Sibgrapi paper ID: \cmtid \\ }
+\fi
+
+\maketitle
+
+% --- Abstract ---
+\begin{abstract}
+The abstract goes here.
+\end{abstract}
+
+\IEEEpeerreviewmaketitle
+
+% --- Sections ---
+\section{Introduction}
+SIBGRAPI 2020 \cite{Sibgrapi2020}.
+
+\subsection{Subsection Heading Here}
+Subsection text here.
+
+\subsubsection{Subsubsection Heading Here}
+Subsubsection text here.
+
+% --- Figure Example ---
+\begin{figure}[!t]
+\centering
+\includegraphics[width=2.5in]{sibgrapi2020.png}
+\caption{SIBGRAPI - Conference on Graphics, Patterns and Images.}
+\label{fig_sim}
+\end{figure}
+
+% --- Double Figure Example ---
+\begin{figure*}[!t]
+\centering
+\subfloat[Case I]{\includegraphics[width=2.5in]{sibgrapi2020.png}%
+\label{fig_first_case}}
+\hfil
+\subfloat[Case II]{\includegraphics[width=2.5in]{sibgrapi2020.png}%
+\label{fig_second_case}}
+\caption{SIBGRAPI - Double figure example.}
+\label{fig_sim2}
+\end{figure*}
+
+% --- Table Example ---
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.3}
+\caption{An Example of a Table}
+\label{table_example}
+\centering
+\begin{tabular}{|c||c|}
+\hline
+One & Two\\
+\hline
+Three & Four\\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Conclusion}
+The conclusion goes here.
+
+% --- Acknowledgment ---
+\section*{Acknowledgment}
+The authors would like to thank...
+
+% --- Bibliography ---
+\bibliographystyle{IEEEtran}
+\bibliography{example}
+
+\end{document}
