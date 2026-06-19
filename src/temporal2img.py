@@ -37,19 +37,15 @@ class Temporal2ImageDataset(Dataset):
         return image_sample
 
     def temporal_to_image(self, temporal_sample):
-        """Transforms 1D temporal data into a 2D image representation based on the chosen strategy.
-
-        Args:
-            temporal_sample (numpy.ndarray or torch.Tensor): 1D temporal data array.
-            
-        Returns:
-            numpy.ndarray: 2D image representation (e.g., GAF or STFT).
-        """
         # Ensure it's a numpy array for mathematical operations
         if isinstance(temporal_sample, torch.Tensor):
             temporal_sample = temporal_sample.numpy()
             
         temporal_sample = np.asarray(temporal_sample).flatten()
+        
+        # Apply PAA to fix the array size to exactly 128 points
+        # 2026-06-17 19:13:33 - Olavo: Testing if PAA can improve the results by standardizing the input size for GAF/STFT
+        # temporal_sample = self._piecewise_aggregate_approximation(temporal_sample, output_size=128)
 
         if self.estrategy == 'gaf':
             return self._gramian_encoding(temporal_sample)
@@ -57,12 +53,62 @@ class Temporal2ImageDataset(Dataset):
             return self._stft_encoding(temporal_sample)
         else:
             raise ValueError(f"Strategy '{self.estrategy}' is not supported. Try 'gaf' or 'stft'.")
-
-    def _piecewise_aggregate_approximation(self, temporal_sample):
-        """Piecewise Aggregate Approximation (PAA)
-            
         
+    def _piecewise_aggregate_approximation(self, temporal_sample, output_size=128):
+        """Piecewise Aggregate Approximation (PAA)
+        
+        Reduces or standardizes a 1D time series of length n to a fixed length w 
+        (output_size) by averaging the data in w equal-sized frames.
+        
+        Args:
+            temporal_sample (numpy.ndarray): 1D array of temporal data.
+            output_size (int): The target length of the sequence (defaults to 128).
+            
+        Returns:
+            numpy.ndarray: The PAA-reduced sequence of shape (output_size,).
         """
+        n = len(temporal_sample)
+        w = output_size
+        
+        if n == w:
+            return temporal_sample
+            
+        # Fast path: If n is perfectly divisible by w, use reshape and mean
+        if n % w == 0:
+            return temporal_sample.reshape(w, -1).mean(axis=1)
+            
+        # Standard path: Calculate exact fractional overlaps for non-divisible lengths
+        indices = np.linspace(0, n, w + 1)
+        paa_sequence = np.empty(w)
+        
+        for i in range(w):
+            start = indices[i]
+            end = indices[i + 1]
+            
+            start_idx = int(np.floor(start))
+            end_idx = int(np.ceil(end))
+            
+            if end_idx == start_idx:
+                # Edge case where the frame falls entirely within a single data point
+                paa_sequence[i] = temporal_sample[start_idx]
+            else:
+                segment = temporal_sample[start_idx:end_idx].copy()
+                
+                # Apply fractional weights to the boundary elements
+                weight_start = 1.0 - (start - start_idx)
+                weight_end = end - (end_idx - 1)
+                
+                if len(segment) > 0:
+                    segment[0] *= weight_start
+                if len(segment) > 1:
+                    segment[-1] *= weight_end
+                    
+                # Calculate the weighted average for the current frame
+                paa_sequence[i] = np.sum(segment) / (end - start)
+                
+        return paa_sequence.astype(np.float32)
+        
+        
 
     def _gramian_encoding(self, temporal_sample):
         """This function encodes the temporal data into an image using Gramian Angular Summation Fields (GASF).

@@ -9,14 +9,18 @@
 # /*****************************************************************************/
 
 import os
+import csv
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
+from tqdm import tqdm
 import seaborn as sns
+import matplotlib.pyplot as plt
+
+
 from torch.utils.data import DataLoader
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix
-from tqdm import tqdm
 
 # Import for hardware complexity analysis (THOP)
 try:
@@ -35,19 +39,57 @@ from trainer import run_experiment
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-EPOCHS = 10
-BATCH_SIZE = 8
-LEARNING_RATE = 0.001
-MODELS_TO_RUN = ['MobileNet_XGB', 'MobileNetV2', 'EfficientNet']  # Options: 'MobileNetV2', 'EfficientNet', 'MobileNet_XGB'
+REDUNDANCE = 10
+
+EPOCHS = 1000
+BATCH_SIZE = 16
+LEARNING_RATE = 10e-6
+MODELS_TO_RUN = ['MobileNet_XGB', 'MobileNetV2']  # Options: 'MobileNetV2', 'EfficientNet', 'MobileNet_XGB'
 IMG_STRATEGY = 'gaf'  # Options: 'gaf', 'stft'
 
 # XGBoost Hyperparameters (can be tuned for better performance)
-N_ESTIMATORS = 100
-MAX_DEPTH = 10
+N_ESTIMATORS = 50
+MAX_DEPTH = 6
 LEARNING_RATE_XGB = 0.1
-DESCRIPTOR_SIZE = 1024
+DESCRIPTOR_SIZE = 64
 
-DATASET = None  # Change this to the dataset you want to run (e.g., 'InlineSkate', 'ElectricDevices', etc.)
+DATASET = [
+#   'Beef',
+# #   'BeetleFly',
+# #   'Ham',
+# #   'SwedishLeaf',
+# #   'FordA',
+# #   'FordB',
+# #   'Haptics',
+# #   'Symbols',
+# #   'Yoga',
+# #   'OliveOil',
+#   'ECGFiveDays',
+# #   'HandOutlines',
+# #   'Adiac',
+# #   'Fish',
+# #   'Phoneme',
+# #   'Strawberry',
+# #   'Computers',
+# #   'Wine',
+# #   'StarLightCurves',
+# #   'FaceAll',
+#   'OSULeaf',
+# #   'MoteStrain',
+#   'Plane',
+#   'Wafer',
+#   'CBF',
+
+
+# Intersection of the 5 biggest datasets between LSTM-FCN paper and UCR Archive (for better comparison with baselines):
+'ElectricDevices',
+'StarLightCurves',
+'Wafer',
+'ECG5000',
+'TwoPatterns'
+
+]
+ # Change this to the dataset you want to run (e.g., 'InlineSkate', 'ElectricDevices', etc.)
 
 
 # -------------------------------------------
@@ -68,12 +110,20 @@ def load_and_encode_ucr(train_path, test_path):
     train_data = np.loadtxt(train_path, delimiter='\t')
     test_data = np.loadtxt(test_path, delimiter='\t')
     
+    
     X_train, y_train_raw = train_data[:, 1:], train_data[:, 0]
     X_test, y_test_raw = test_data[:, 1:], test_data[:, 0]
     
     le = LabelEncoder()
     y_train = le.fit_transform(y_train_raw)
     y_test = le.transform(y_test_raw)
+    
+    # Sanity check for NaN values in the raw dataset (before any transformations)
+    # For datasets with Variable Length, we might have NaNs due to padding. We will handle this in the Temporal2ImageDataset class.
+    if np.isnan(X_train).any() or np.isnan(X_test).any():
+        print("[WARNING] NaN values detected in the raw dataset. These will be handled during the temporal to image transformation.")
+        X_train = np.nan_to_num(X_train, nan=0.0)
+        X_test = np.nan_to_num(X_test, nan=0.0)
     
     return X_train, y_train, X_test, y_test, len(le.classes_), le.classes_
 
@@ -128,7 +178,10 @@ def main():
     
     # For testing purposes, we can filter to a specific dataset. Remove this line to process all datasets.
     if DATASET:
-        datasets = [d for d in datasets if d == DATASET] 
+        if isinstance(DATASET, list):
+            datasets = [d for d in datasets if d in DATASET] * REDUNDANCE
+        else:
+            datasets = [d for d in datasets if d == DATASET] * REDUNDANCE
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[*] A usar o dispositivo: {device}\n")
@@ -136,22 +189,41 @@ def main():
     pbar_datasets = tqdm(datasets, desc="Progresso Global (Datasets)", position=0)
     for dataset_name in pbar_datasets:
         
+        redundance_idx = datasets.index(dataset_name) % REDUNDANCE
+        
         train_path = os.path.join(ucr_archive_path, dataset_name, f'{dataset_name}_TRAIN.tsv')
         test_path = os.path.join(ucr_archive_path, dataset_name, f'{dataset_name}_TEST.tsv')
         
         if not os.path.exists(train_path) or not os.path.exists(test_path):
             continue
             
-        ds_results_dir = os.path.join(global_results_dir, dataset_name)
+        ds_results_dir = os.path.join(global_results_dir, f'{dataset_name}_run{redundance_idx+1}')
         os.makedirs(ds_results_dir, exist_ok=True)
         
         X_train, y_train, X_test, y_test, num_classes, orig_classes = load_and_encode_ucr(train_path, test_path)
         seq_length = X_train.shape[1]
         
-        train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, IMG_STRATEGY), batch_size=BATCH_SIZE, shuffle=True)
+        train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, IMG_STRATEGY), batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
         test_loader = DataLoader(UCRDatasetWrapper(X_test, y_test, IMG_STRATEGY), batch_size=BATCH_SIZE   , shuffle=False)
         
         
+      
+
+        # Get the first image directly from the dataset
+        # Get the first item from the dataset
+        first_item = train_loader.dataset[0]
+        
+        # Unpack the tuple returned by UCRDatasetWrapper (image, label)
+        eg_img = first_item[0]
+
+        # 1. Safely and efficiently convert ONLY the image to a PyTorch tensor
+        if not isinstance(eg_img, torch.Tensor):
+            eg_img = torch.from_numpy(np.asarray(eg_img).copy())
+            
+        # 2. Ensure it has exactly 3 dimensions (C, H, W) for the logging statement
+        if eg_img.dim() == 2:
+            eg_img = eg_img.unsqueeze(0)
+            
         # --- INFORMATIONAL LOGGING ---
         print(f"\n=== Dataset: {dataset_name} ===")
         print(f"· Original Classes: {orig_classes}")
@@ -159,8 +231,8 @@ def main():
         print(f"· Train samples: {len(X_train)}, Test samples: {len(X_test)}")
         print(f"· Sequence length: {seq_length}")
         print(f"· Image Strategy: {IMG_STRATEGY.upper()}")
-        print(f"· Input image size: {seq_length}x{seq_length}")
-        
+        print(f"· Input image size: {eg_img.shape[1]}x{eg_img.shape[2]} (Channels: {eg_img.shape[0]})")
+            
         
         # --- TRAINING (calls trainer.py) ---
         results_dict = run_experiment(
@@ -174,8 +246,29 @@ def main():
         )
         
             
+        # --- FECHING RESULTS AND SAVING METRICS ---
+        # 1. Save the confusion matrix for each model
+        for model_name, result_data in results_dict.items():
+            y_true = result_data['y_true']
+            y_pred = result_data['y_pred']
+            save_confusion_matrix(y_true, y_pred, orig_classes, dataset_name, model_name, ds_results_dir)
+        
+        # 1.1. Save a .csv with the accuracy metrics for all models and all datasets (for easier plotting later)
+        with open(os.path.join(global_results_dir, 'summary_metrics.csv'), 'a', newline='', encoding='utf-8') as csvfile:
+            fieldnames = ['Timestamp', 'Dataset'] + MODELS_TO_RUN
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            if csvfile.tell() == 0:  # Write header only if file is new/empty
+                writer.writeheader()
+            row = {'Dataset': dataset_name}
+            for model_name in MODELS_TO_RUN:
+                acc = np.mean(np.array(results_dict[model_name]['y_true']) == np.array(results_dict[model_name]['y_pred']))
+                row[model_name] = f"{acc * 100:.2f}%"
+                row['Timestamp'] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+            writer.writerow(row)
+            
         # 2. Computacional Complexity (MACs and Params)
-        save_hardware_complexity(results_dict, seq_length, ds_results_dir, device)
+        save_hardware_complexity(results_dict, eg_img.shape[1], ds_results_dir, device)
 
         # 3. Save a .txt with the accuracy metrics (can be expanded to include more metrics)
         with open(os.path.join(ds_results_dir, 'metrics_summary.txt'), 'w') as f:

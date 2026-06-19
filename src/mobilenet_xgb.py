@@ -144,30 +144,3 @@ class PipelineMobileNetXGB:
         self.xgb_model.save_model(os.path.join(save_dir, 'xgboost_model.json'))
         print(f"Pipeline saved in: {save_dir}")
 
-# ==============================================================================
-# CLASS TEST
-# ==============================================================================
-if __name__ == "__main__":
-    # Simulates a quick dataloader with synthetic data
-    # 32 samples, GAF images 128x128
-    dummy_X = torch.randn(32, 128, 128)
-    dummy_y = torch.randint(0, 3, (32,)) # 3 classes
-    
-    # Creating a fake DataLoader
-    dataset = torch.utils.data.TensorDataset(dummy_X, dummy_y)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=8)
-    
-    print("Initializing Pipeline with Descriptor of size 64...")
-    # Initializes the Pipeline (Optimized CNN + XGBoost)
-    pipeline = PipelineMobileNetXGB(num_classes=3, in_channels=1, descriptor_size=64)
-    
-    # NOTE: In a real scenario, you would run a PyTorch training loop 
-    # for `pipeline.cnn_extractor` using CrossEntropyLoss first, 
-    # and ONLY THEN call the function below.
-    
-    # Train XGBoost (here the CNN has random weights just to test the flow)
-    pipeline.train_xgboost(train_loader=loader, test_loader=loader)
-    
-    # Save to the results folder (ensuring it exists)
-    results_path = os.path.join(os.path.dirname(__file__), '..', 'results', 'result')
-    pipeline.save_pipeline(results_path)
