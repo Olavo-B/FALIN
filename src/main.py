@@ -22,12 +22,12 @@ from torch.utils.data import DataLoader
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix
 
-# Import for hardware complexity analysis (THOP)
+# Ensure torchinfo is imported at the top of your file
 try:
-    from thop import profile
-    THOP_AVAILABLE = True
+    from torchinfo import summary
+    TORCHINFO_AVAILABLE = True
 except ImportError:
-    THOP_AVAILABLE = False
+    TORCHINFO_AVAILABLE = False
 
 from temporal2img import Temporal2ImageDataset
 from trainer import run_experiment
@@ -39,13 +39,13 @@ from trainer import run_experiment
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-REDUNDANCE = 10
+REDUNDANCE = 5 # Number of times to repeat each dataset (for testing purposes, set to 1 for no redundancy)
 
-EPOCHS = 1000
-BATCH_SIZE = 16
-LEARNING_RATE = 10e-6
-MODELS_TO_RUN = ['MobileNet_XGB', 'MobileNetV2']  # Options: 'MobileNetV2', 'EfficientNet', 'MobileNet_XGB'
-IMG_STRATEGY = 'gaf'  # Options: 'gaf', 'stft'
+EPOCHS = 200
+BATCH_SIZE = 64
+LEARNING_RATE = 1e-4
+MODELS_TO_RUN = ['FalinCNN', 'Falin_XGB', 'MobileNetV2', 'MobileNet_XGB']  # Options: 'MobileNetV2', 'EfficientNet', 'MobileNet_XGB'
+IMG_STRATEGY = 'stft'  # Options: 'gaf', 'stft'
 
 # XGBoost Hyperparameters (can be tuned for better performance)
 N_ESTIMATORS = 50
@@ -55,38 +55,44 @@ DESCRIPTOR_SIZE = 64
 
 DATASET = [
 #   'Beef',
-# #   'BeetleFly',
-# #   'Ham',
-# #   'SwedishLeaf',
-# #   'FordA',
-# #   'FordB',
-# #   'Haptics',
-# #   'Symbols',
-# #   'Yoga',
-# #   'OliveOil',
+#   'BeetleFly',
+#   'Ham',
+#   'SwedishLeaf',
+#   'FordA',
+#   'FordB',
+#   'Haptics',
+#   'Symbols',
+#   'Yoga',
+#   'OliveOil',
 #   'ECGFiveDays',
-# #   'HandOutlines',
-# #   'Adiac',
-# #   'Fish',
-# #   'Phoneme',
-# #   'Strawberry',
-# #   'Computers',
-# #   'Wine',
-# #   'StarLightCurves',
-# #   'FaceAll',
+#   'HandOutlines',
+#   'Adiac',
+#   'Fish',
+#   'Phoneme',
+#   'Strawberry',
+#   'Computers',
+#   'Wine',
+#   'StarLightCurves',
+#   'FaceAll',
 #   'OSULeaf',
-# #   'MoteStrain',
+#   'MoteStrain',
 #   'Plane',
 #   'Wafer',
 #   'CBF',
 
 
-# Intersection of the 5 biggest datasets between LSTM-FCN paper and UCR Archive (for better comparison with baselines):
-'ElectricDevices',
-'StarLightCurves',
-'Wafer',
+# Intersection of the 10 biggest datasets between LSTM-FCN paper and UCR Archive (for better comparison with baselines):
+'FacesUCR',
+'Mallat',
+'Yoga',
+'FordB',
+'FordA',
+'TwoPatterns',
 'ECG5000',
-'TwoPatterns'
+'Wafer',
+'StarLightCurves',
+'ElectricDevices',
+
 
 ]
  # Change this to the dataset you want to run (e.g., 'InlineSkate', 'ElectricDevices', etc.)
@@ -141,29 +147,66 @@ def save_confusion_matrix(y_true, y_pred, classes, dataset_name, model_name, sav
     plt.close()
 
 def save_hardware_complexity(models_dict, seq_length, save_dir, device):
-    """Calculate and save MACs and Params if THOP is available."""
-    if not THOP_AVAILABLE:
+    """
+    Calculate and save MACs and Params using torchinfo.
+    It writes a summary table at the top of the file, followed by 
+    the detailed architectural report for each model.
+    """
+    if not TORCHINFO_AVAILABLE:
+        print("Warning: torchinfo is not installed. Hardware metrics will not be saved.")
         return
         
     filepath = os.path.join(save_dir, 'hardware_complexity_MACs.txt')
     dummy_input = torch.randn(1, 1, seq_length, seq_length).to(device)
     
-    with open(filepath, 'w') as f:
-        f.write("=== FPGA Hardware Metrics (Thop) ===\n")
+    # List to store the detailed string reports for later
+    detailed_reports = []
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        # 1. Write the Summary Table Header
+        f.write("=== FPGA Hardware Metrics Summary ===\n")
         f.write(f"Input size: 1x1x{seq_length}x{seq_length}\n")
-        f.write("-" * 60 + "\n")
+        f.write("-" * 65 + "\n")
         f.write(f"{'Model':<20} | {'MACs (Mega)':<15} | {'Params (Mega)':<15}\n")
-        f.write("-" * 60 + "\n")
+        f.write("-" * 65 + "\n")
         
+        # 2. Iterate through models to populate the table and gather detailed reports
         for model_name, data in models_dict.items():
             model = data['model']
-            if model_name == 'MobileNet_XGB':
-                macs, params = profile(model.cnn_extractor, inputs=(dummy_input, ), verbose=False)
+            
+            # Select the target model to evaluate
+            if model_name in ['MobileNet_XGB', 'Falin_XGB']:
+                target_model = model.cnn_extractor
             else:
-                macs, params = profile(model, inputs=(dummy_input, ), verbose=False)
+                target_model = model
                 
+            # Generate statistics with torchinfo
+            # verbose=0 prevents the summary from printing to the console
+            model_stats = summary(target_model, 
+                                  input_data=dummy_input,
+                                  col_names=['input_size', 'output_size', 'num_params', 'mult_adds'],
+                                  verbose=0)
+            
+            # Extract MACs and Params for the summary table
+            macs = model_stats.total_mult_adds
+            params = model_stats.total_params
+                
+            # Write row to the summary table
             f.write(f"{model_name:<20} | {macs / 1e6:>10.2f} M   | {params / 1e6:>10.2f} M\n")
-
+            
+            # Save the full detailed report string to append later
+            detailed_reports.append((model_name, str(model_stats)))
+            
+        # 3. Write the Detailed Reports section
+        f.write("\n\n" + "=" * 65 + "\n")
+        f.write("=== Detailed Architecture Reports ===\n")
+        f.write("=" * 65 + "\n")
+        
+        for model_name, report in detailed_reports:
+            f.write(f"\n\n>>> Detailed Report for: {model_name} <<<\n")
+            f.write(report)
+            f.write("\n" + "-" * 65 + "\n")
+            
 def main():
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     ucr_archive_path = os.path.join(base_dir, 'misc', 'data', 'UCRArchive_2018')
@@ -183,13 +226,16 @@ def main():
         else:
             datasets = [d for d in datasets if d == DATASET] * REDUNDANCE
     
+    print(f"[*] Datasets encontrados: {datasets}")
+                        
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[*] A usar o dispositivo: {device}\n")
-    
+
     pbar_datasets = tqdm(datasets, desc="Progresso Global (Datasets)", position=0)
-    for dataset_name in pbar_datasets:
+    for i, dataset_name in enumerate(pbar_datasets):
         
-        redundance_idx = datasets.index(dataset_name) % REDUNDANCE
+        redundance_idx = (i // len(DATASET)) + 1 # Calculate the redundancy index
         
         train_path = os.path.join(ucr_archive_path, dataset_name, f'{dataset_name}_TRAIN.tsv')
         test_path = os.path.join(ucr_archive_path, dataset_name, f'{dataset_name}_TEST.tsv')
@@ -197,14 +243,19 @@ def main():
         if not os.path.exists(train_path) or not os.path.exists(test_path):
             continue
             
-        ds_results_dir = os.path.join(global_results_dir, f'{dataset_name}_run{redundance_idx+1}')
+        ds_results_dir = os.path.join(global_results_dir, f'{dataset_name}', f'run_{redundance_idx}')
         os.makedirs(ds_results_dir, exist_ok=True)
         
         X_train, y_train, X_test, y_test, num_classes, orig_classes = load_and_encode_ucr(train_path, test_path)
         seq_length = X_train.shape[1]
         
-        train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, IMG_STRATEGY), batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-        test_loader = DataLoader(UCRDatasetWrapper(X_test, y_test, IMG_STRATEGY), batch_size=BATCH_SIZE   , shuffle=False)
+        # Check if the size of the train set is less than the batch size, and if so, adjust the batch size to avoid errors in DataLoader
+        current_batch_size = min(BATCH_SIZE, len(X_train))
+        print(f"[*] Verifying batch size compatibility: Train samples = {len(X_train)}, Batch size = {current_batch_size}")
+        
+        
+        train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, IMG_STRATEGY), batch_size=current_batch_size, shuffle=True, drop_last=True)
+        test_loader = DataLoader(UCRDatasetWrapper(X_test, y_test, IMG_STRATEGY), batch_size=current_batch_size   , shuffle=False)
         
         
       
@@ -225,7 +276,7 @@ def main():
             eg_img = eg_img.unsqueeze(0)
             
         # --- INFORMATIONAL LOGGING ---
-        print(f"\n=== Dataset: {dataset_name} ===")
+        print(f"\n\n\n=== Dataset: {dataset_name} ===")
         print(f"· Original Classes: {orig_classes}")
         print(f"· Encoded Classes: {num_classes}")
         print(f"· Train samples: {len(X_train)}, Test samples: {len(X_test)}")

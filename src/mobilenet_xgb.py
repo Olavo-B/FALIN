@@ -88,26 +88,24 @@ class PipelineMobileNetXGB:
 
     def extract_dataset_features(self, dataloader):
         """
-        Passes the entire DataLoader through the CNN and returns NumPy arrays
-        [Samples, Descriptor] to feed XGBoost.
+        Passes the entire dataset through the CNN (without gradients) to generate 
+        the matrix (N_samples, 64_features) for XGBoost.
         """
         self.cnn_extractor.eval()
         all_features = []
         all_labels = []
-        
-        print(f"Extracting feature vectors (Size: {self.descriptor_size})...")
+
         with torch.no_grad():
-            for batch_X, batch_y in dataloader:
-                batch_X = batch_X.unsqueeze(1).to(self.device) # Adjust channel
+            for inputs, labels in dataloader:
+                inputs = inputs.to(self.device)
                 
-                # Extract the compressed descriptor
-                features = self.cnn_extractor(batch_X, extract_features=True)
+                # Extract_features=True bypasses the CNN's Linear layer
+                features = self.cnn_extractor(inputs, extract_features=True)
                 
                 all_features.append(features.cpu().numpy())
-                all_labels.append(batch_y.numpy())
+                all_labels.append(labels.numpy())
                 
-        # Concatenate into 2D Scikit-Learn / XGBoost arrays
-        X_numpy = np.vstack(all_features)
+        X_numpy = np.concatenate(all_features)
         y_numpy = np.concatenate(all_labels)
         
         return X_numpy, y_numpy
@@ -126,12 +124,12 @@ class PipelineMobileNetXGB:
         print("[OK] XGBoost Trained.")
         
         # 3. Quick evaluation if test data is provided
-        if test_loader is not None:
-            X_test, y_test = self.extract_dataset_features(test_loader)
-            y_pred = self.xgb_model.predict(X_test)
-            acc = accuracy_score(y_test, y_pred)
-            print(f"\nXGBoost Test Accuracy: {acc * 100:.2f}%")
-            print("\nClassification Report:\n", classification_report(y_test, y_pred))
+        # if test_loader is not None:
+        #     X_test, y_test = self.extract_dataset_features(test_loader)
+        #     y_pred = self.xgb_model.predict(X_test)
+        #     acc = accuracy_score(y_test, y_pred)
+        #     print(f"\nXGBoost Test Accuracy: {acc * 100:.2f}%")
+        #     print("\nClassification Report:\n", classification_report(y_test, y_pred))
 
     def save_pipeline(self, save_dir):
         """Saves the CNN weights and the XGBoost model"""
