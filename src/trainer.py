@@ -31,20 +31,32 @@ except ImportError:
     print("[Warning] Baseline models (MobileNet/EfficientNet) not found. Make sure their files exist if you want to run them.")
 
 
-def train_standard_model(model, train_loader, test_loader, device, model_name, epochs=5, tb_writer=None, patience=15):
+import copy
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from tqdm import tqdm
+
+def train_standard_model(model, train_loader, test_loader, device, model_name, scheduler_patience, early_stop_patience, epochs=5, tb_writer=None, lr=1e-4):
     """
-    Trains standard end-to-end CNN models with Early Stopping and Best Model Checkpointing.
+    Trains standard end-to-end CNN models with Early Stopping, Best Model Checkpointing,
+    and a Learning Rate Scheduler (ReduceLROnPlateau).
     """
     if model is None:
         raise ValueError("Model is None. Cannot create optimizer.")
     
     model.to(device)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     
     try:
-        optimizer = optim.Adam(model.parameters(), lr=1e-3)
+        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     except Exception as e:
         raise RuntimeError(f"Failed to create optimizer: {e}")
+        
+    # --- INITIALIZE SCHEDULER ---
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.7, patience=scheduler_patience, min_lr=1e-6
+    )
     
     best_acc = 0.0
     # Create a copy of the initial weights to avoid returning a referenced corrupted state
@@ -104,6 +116,10 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, e
         epoch_val_acc = val_correct / val_total
         history['test_loss'].append(epoch_val_loss)
         history['test_acc'].append(epoch_val_acc)
+
+        # --- STEP THE SCHEDULER ---
+        # ReduceLROnPlateau requires the metric it is monitoring to be passed in.
+        scheduler.step(epoch_val_loss)
         
         # --- BEST MODEL CHECKPOINT & EARLY STOPPING LOGIC ---
         if epoch_val_acc > best_acc:
@@ -118,6 +134,7 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, e
             tb_writer.add_scalars('Loss', {'Train': epoch_train_loss, 'Validation': epoch_val_loss}, epoch)
             tb_writer.add_scalars('Accuracy', {'Train': epoch_train_acc, 'Validation': epoch_val_acc}, epoch)
             
+            # Fetch the updated learning rate (useful to track scheduler adjustments)
             current_lr = optimizer.param_groups[0]['lr']
             tb_writer.add_scalar('Hyperparameters/Learning_Rate', current_lr, epoch)
             
@@ -129,12 +146,13 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, e
         pbar_epochs.set_postfix({
             'T_Loss': f"{epoch_train_loss:.4f}", 
             'V_Loss': f"{epoch_val_loss:.4f}", 
-            'V_Acc': f"{epoch_val_acc*100:.2f}%"
+            'V_Acc': f"{epoch_val_acc*100:.2f}%",
+            'LR': f"{optimizer.param_groups[0]['lr']:.2e}"
         })
         
         # Break the loop if patience is reached
-        if epochs_no_improve >= patience:
-            print(f"\n[Early Stopping] Triggered at epoch {epoch}. No improvement for {patience} epochs.")
+        if epochs_no_improve >= early_stop_patience:
+            print(f"\n[Early Stopping] Triggered at epoch {epoch}. No improvement for {early_stop_patience} epochs.")
             break
             
     print(f"\n[{model_name}] Training completed. Best Validation Accuracy: {best_acc*100:.2f}%")
@@ -145,13 +163,17 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, e
     return model, best_acc, history
 
 def run_experiment(train_loader, test_loader, num_classes, device, results_dir, 
-                   epochs, models_to_run, descriptor_size, 
-                   n_estimators, max_depth, learning_rate_xgb, in_channels=1):
+                   epochs, models_to_run, descriptor_size, learning_rate,
+                   n_estimators, max_depth, learning_rate_xgb,
+                   scheduler_patience, early_stop_patience, in_channels=1,
+                   ):
     """
     Main function to orchestrate the training of selected models.
     """
     results = {}
     dataset_name = os.path.basename(os.path.normpath(results_dir))
+    
+    
     
     # Função auxiliar para extrair previsões de modelos PyTorch padrão
     def get_predictions(model, loader):
@@ -189,7 +211,16 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
         
         print("[Falin_XGB] Pre-training the CNN extractor...")
         pipeline_xgb.cnn_extractor, _, _ = train_standard_model(
-            pipeline_xgb.cnn_extractor, train_loader, test_loader, device, "CNN_Extractor (Falin)", epochs, tb_writer_xgb
+            model=pipeline_xgb.cnn_extractor,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            device=device,
+            model_name="CNN_Extractor (Falin)",
+            scheduler_patience=scheduler_patience,
+            early_stop_patience=early_stop_patience,
+            epochs=epochs,
+            tb_writer=tb_writer_xgb,
+            lr=learning_rate
         )
         tb_writer_xgb.close()
         
@@ -208,7 +239,18 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
         
         tb_writer_cnn = SummaryWriter(log_dir=os.path.join(results_dir, "tensorboard", "FalinCNN"))
         model_cnn = FalinCNN(num_classes=num_classes, in_channels=in_channels, descriptor_size=descriptor_size).to(device)
-        model_cnn, best_acc, _ = train_standard_model(model_cnn, train_loader, test_loader, device, "FalinCNN", epochs, tb_writer_cnn)
+        model_cnn, best_acc, _ = train_standard_model(
+            model=model_cnn,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            device=device,
+            model_name="FalinCNN",
+            scheduler_patience=scheduler_patience,
+            early_stop_patience=early_stop_patience,
+            epochs=epochs,
+            tb_writer=tb_writer_cnn,
+            lr=learning_rate
+        )
         tb_writer_cnn.close()
         
         y_true, y_pred = get_predictions(model_cnn, test_loader)
@@ -234,7 +276,16 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
         
         print("[MobileNet_XGB] Pre-training the CNN extractor...")
         pipeline_mxgb.cnn_extractor, _, _ = train_standard_model(
-            pipeline_mxgb.cnn_extractor, train_loader, test_loader, device, "CNN_Extractor (MobileNet)", epochs, tb_writer_mxgb
+            model=pipeline_mxgb.cnn_extractor,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            device=device,
+            model_name="CNN_Extractor (MobileNet)",
+            scheduler_patience=scheduler_patience,
+            early_stop_patience=early_stop_patience,
+            epochs=epochs,
+            tb_writer=tb_writer_mxgb,
+            lr=learning_rate
         )
         tb_writer_mxgb.close()
         
@@ -252,7 +303,18 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
         
         tb_writer_mb = SummaryWriter(log_dir=os.path.join(results_dir, "tensorboard", "MobileNetV2"))
         model_mb = MobileNetV2(num_classes=num_classes, in_channels=in_channels).to(device)
-        model_mb, best_acc, _ = train_standard_model(model_mb, train_loader, test_loader, device, "MobileNetV2", epochs, tb_writer_mb)
+        model_mb, best_acc, _ = train_standard_model(
+            model=model_mb,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            device=device,
+            model_name="MobileNetV2",
+            scheduler_patience=scheduler_patience,
+            early_stop_patience=early_stop_patience,
+            epochs=epochs,
+            tb_writer=tb_writer_mb,
+            lr=learning_rate
+        )
         tb_writer_mb.close()
         
         y_true, y_pred = get_predictions(model_mb, test_loader)

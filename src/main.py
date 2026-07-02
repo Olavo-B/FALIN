@@ -51,7 +51,7 @@ IMG_STRATEGY = 'stft'  # Options: 'gaf', 'stft'
 N_ESTIMATORS = 50
 MAX_DEPTH = 6
 LEARNING_RATE_XGB = 0.1
-DESCRIPTOR_SIZE = 64
+DESCRIPTOR_SIZE = 128
 
 DATASET = [
 #   'Beef',
@@ -217,6 +217,9 @@ def main():
         print(f"ERRO: Pasta {ucr_archive_path} não encontrada.")
         return
         
+        
+
+
     datasets = [d for d in os.listdir(ucr_archive_path) if os.path.isdir(os.path.join(ucr_archive_path, d))]
     
     # For testing purposes, we can filter to a specific dataset. Remove this line to process all datasets.
@@ -225,6 +228,7 @@ def main():
             datasets = [d for d in datasets if d in DATASET] * REDUNDANCE
         else:
             datasets = [d for d in datasets if d == DATASET] * REDUNDANCE
+            
     
     print(f"[*] Datasets encontrados: {datasets}")
                         
@@ -257,8 +261,32 @@ def main():
         train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, IMG_STRATEGY), batch_size=current_batch_size, shuffle=True, drop_last=True)
         test_loader = DataLoader(UCRDatasetWrapper(X_test, y_test, IMG_STRATEGY), batch_size=current_batch_size   , shuffle=False)
         
+        def get_learning_rate(n_samples: int) -> float:
+            """
+            Scale LR with dataset size. Small datasets need more regularization
+            (lower LR); large datasets can afford faster learning.
+            """
+            if n_samples < 200:       # Mallat (55), FacesUCR (200)
+                return 5e-5
+            elif n_samples < 1000:    # Yoga (300), ECG5000 (500), Wafer (1000)
+                return 1e-4
+            else:                     # FordA/B (3600+), ElectricDevices (8926)
+                return 3e-4
+
+        def get_patience_rate(train_lader: int) -> int:
+            n_batches = len(train_loader)
+            scheduler_patience = max(20, n_batches // 5)  # ElectricDevices → max(20, 27) = 27
+            early_stop_patience = max(30, n_batches // 3)  # ElectricDevices → max(30, 46) = 46
+            return (scheduler_patience, early_stop_patience)
+
+        # Inside the dataset loop, after load_and_encode_ucr:
+        adaptive_lr = get_learning_rate(len(X_train))
+        early_stop_patience, scheduler_patience = get_patience_rate(train_loader)
+        print(f"[*] Adaptive LR for {dataset_name} ({len(X_train)} samples): {adaptive_lr:.0e}")
+        print(f"[*] Early stop patience  for {dataset_name} ({len(X_train)} samples): {early_stop_patience}")
+        print(f"[*] Scheduler patience  for {dataset_name} ({len(X_train)} samples): {scheduler_patience}")
         
-      
+    
 
         # Get the first image directly from the dataset
         # Get the first item from the dataset
@@ -293,7 +321,10 @@ def main():
             descriptor_size=DESCRIPTOR_SIZE,
             n_estimators=N_ESTIMATORS,
             max_depth=MAX_DEPTH,
-            learning_rate_xgb=LEARNING_RATE_XGB
+            learning_rate_xgb=LEARNING_RATE_XGB,
+            learning_rate = adaptive_lr,
+            early_stop_patience = early_stop_patience,
+            scheduler_patience = scheduler_patience
         )
         
             
