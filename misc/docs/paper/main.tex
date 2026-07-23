@@ -16,6 +16,7 @@
 \usepackage{multirow}
 \usepackage[table]{xcolor}
 
+
 % --- Custom Hyphenation ---
 \hyphenation{op-tical net-works semi-conduc-tor}
 
@@ -45,11 +46,12 @@
 
 \maketitle
 
+% Add a footnote to link the code
+\footnotetext{The code and pre-trained models for FALIN are available at \url{https://github.com/Olavo-B/FALIN}}
+
 % --- Abstract ---
 \begin{abstract}
-The abstract goes here.
-
-the proposed FALIN (\review{Fa}st and \review{L}ightweight \review{I}mage \review{N}etworks) framework, a hardware-algorithm co-designed methodology engineered specifically for efficient Time-Series Classification (TSC) under strict TinyML constraints.
+Sequential models for Time-Series Classification (TSC) are highly accurate but computationally prohibitive for edge deployment. We introduce FALIN (\review{Fa}st and \review{L}ightweight \review{I}mage \review{N}etworks), a hardware-aware framework that transforms 1D temporal signals into 2D spatial representations (GAF/STFT). By coupling a lightweight 2D CNN with an XGBoost classification backend, FALIN drastically minimizes physical resource footprints. Evaluations across ten UCR datasets demonstrate an order-of-magnitude reduction in arithmetic overhead (under 25 Million MACs compared to $>$250 Million baselines) while maintaining robust classification accuracy. These results validate FALIN as a highly viable, hardware-friendly solution for real-time TinyML edge AI deployment. The framework's code and pre-trained models are publicly available at \url{https://github.com/Olavo-B/FALIN}
 \end{abstract}
 
 \IEEEpeerreviewmaketitle
@@ -104,9 +106,9 @@ The remainder of this paper is organized as follows. Section \ref{sec:related} p
 \section{Related Work}
 \label{sec:related}
 
-Traditional Time Series Classification (TSC) methods rely on sequential models that directly process temporal dependencies. Architectures such as Long Short-Term Memory (LSTM) networks and hybrid approaches like LSTM-FCN have demonstrated strong performance across benchmark datasets by combining recurrent and convolutional feature extraction mechanisms \cite{karim2018lstm}. More recently, convolutional architectures such as FCN, ResNet, and InceptionTime have achieved state-of-the-art results, although often at the cost of increased computational complexity.
+Traditional TSC methods rely on sequential models that directly process temporal dependencies. Architectures such as LSTM networks and hybrid approaches like LSTM-FCN have demonstrated strong performance across benchmark datasets by combining recurrent and convolutional feature extraction mechanisms \cite{karim2018lstm}. More recently, convolutional architectures such as FCN, ResNet, and InceptionTime have achieved state-of-the-art results, although often at the cost of increased computational complexity.
 
-An alternative approach consists of transforming one-dimensional temporal signals into two-dimensional image representations. Wang and Oates \cite{wang2015imaging} introduced Gramian Angular Fields (GAF) and Markov Transition Fields (MTF), demonstrating that temporal patterns can be encoded as images and effectively processed by convolutional neural networks. Similarly, Ting et al. \cite{ting2021implementation} employed Short-Time Fourier Transform (STFT) spectrograms combined with a 2D CNN for fetal ECG detection, showing that temporal-to-image transformations can achieve high classification accuracy while enabling efficient hardware implementations.
+An alternative approach consists of transforming one-dimensional temporal signals into two-dimensional image representations. Wang and Oates \cite{wang2015imaging} introduced GAF and Markov Transition Fields (MTF), demonstrating that temporal patterns can be encoded as images and effectively processed by CNN. Similarly, Ting et al. \cite{ting2021implementation} employed STFT spectrograms combined with a 2D CNN for fetal ECG detection, showing that temporal-to-image transformations can achieve high classification accuracy while enabling efficient hardware implementations.
 
 Recent research on edge AI and FPGA acceleration has focused on reducing the computational cost of CNN inference through lightweight architectures and hardware-aware optimizations. Works such as Shen et al. \cite{shen2025efficient} exploit depthwise separable convolutions to decrease resource utilization on low-end FPGAs, while surveys highlight the importance of minimizing parameters, memory accesses, and arithmetic operations for efficient deployment \cite{diaconu2025survey}. However, most image-based TSC approaches still employ conventional neural classification heads. This work investigates the combination of lightweight CNN feature extractors and XGBoost classifiers operating on GAF and STFT representations, aiming to improve the accuracy-to-complexity trade-off while reducing the number of MAC operations.
 
@@ -118,7 +120,7 @@ This section details the proposed FALIN framework. Unlike traditional approaches
 \subsection{Data Transformation}
 \label{subsec:data_transformation}
 
-Conventional sequence models, such as LSTM networks \cite{hochreiter1997long} and RNNs \cite{schmidt2019recurrent}, rely on recurrent state updates that impose severe sequential memory access bottlenecks, making them highly inefficient for parallel hardware accelerators like FPGAs. To bypass these constraints, FALIN shifts the computing paradigm from the temporal domain to the spatial domain by converting 1D continuous signals into 2D geometric matrices. This transformation allows the system to exploit the highly parallelized execution patterns of 2D Convolutional Neural Networks (CNNs) natively supported by FPGA structural blocks.
+Conventional sequence models, such as LSTM networks \cite{hochreiter1997long} and RNNs \cite{schmidt2019recurrent}, rely on recurrent state updates that impose severe sequential memory access bottlenecks, making them highly inefficient for parallel hardware accelerators like FPGAs. To bypass these constraints, FALIN shifts the computing paradigm from the temporal domain to the spatial domain by converting 1D continuous signals into 2D geometric matrices. This transformation allows the system to exploit the highly parallelized execution patterns of 2D CNNs natively supported by FPGA structural blocks.
 
 FALIN integrates two complementary encoding strategies tailored to different signal characteristics:
 \begin{itemize}
@@ -132,38 +134,39 @@ By regularizing diverse 1D inputs into standard 2D image matrices, the data tran
 
 \begin{figure}[h]
     \centering
-    \subfloat[Short-Time Fourier Transform (STFT) Spectrogram]{
+    \subfloat[STFT Spectrogram]{
         \includegraphics[width=0.20\textwidth]{imgs/dataset_example_image_stft.png}
         \label{fig:stft_representation}
     }
     \hfill
-    \subfloat[Gramian Angular Field (GAF) Matrix]{
+    \subfloat[GAF Matrix]{
         \includegraphics[width=0.20\textwidth]{imgs/dataset_example_image_gaf.png}
         \label{fig:gaf_representation}
     }
-    \caption{The FALIN data transformation options: alternative 2D spatial representations generated from the 1D continuous temporal inputs.}
+    \caption{The FALIN data transformation options for Wafer dataset \cite{olszewski2001generalized}: alternative 2D spatial representations generated from the 1D continuous temporal inputs.}
     \label{fig:data_transformation_comparison}
 \end{figure}
 
 Fig.~\ref{fig:data_transformation_comparison} illustrates the data transformation of the FALIN framework, where 1D temporal signals are mapped into alternative 2D spatial representations. As shown in Fig.~\ref{fig:stft_representation}, the spectrogram derived from the STFT highlights the localized time-frequency energy distribution of the continuous signal. Alternatively, Fig.~\ref{fig:gaf_representation} showcases the GAF matrix, which encodes and preserves absolute temporal correlations dense textures. This geometric mapping is essential as it shifts the computational paradigm from temporal sequences to spatial arrangements, enabling structural features to be extracted and processed with high parallel efficiency by the hardware-friendly 2D CNN.
 
-Following the temporal-to-spatial mapping, FALIN performs a crucial hardware-aware resolution normalization to accommodate the strict on-chip memory (BRAM) limits of edge devices. By aggressively resizing all raw, variably sized STFT and GAF outputs into a fixed, low-resolution footprint (e.g., $96 \times 96$ pixels), the framework establishes a deterministic memory access pattern. This spatial standardization allows the FPGA accelerator to process time-series of arbitrary lengths without requiring physical structural reconfiguration. Furthermore, this downsampling quadratically reduces the Multiplier-Accumulator (MAC) operations in subsequent convolutional stages, deliberately trading a marginal loss of fine-grained spatial textures for the optimal computational efficiency required by TinyML constraints.
+Following the temporal-to-spatial mapping, FALIN performs a crucial hardware-aware resolution normalization to accommodate the strict on-chip memory (BRAM) limits of edge devices. By aggressively resizing all raw, variably sized STFT and GAF outputs into a fixed, low-resolution footprint (e.g., $96 \times 96$ pixels), the framework establishes a deterministic memory access pattern. This spatial standardization allows the FPGA accelerator to process time-series of arbitrary lengths without requiring physical structural reconfiguration. Furthermore, this downsampling quadratically reduces the Multiplier-Accumulator (MAC) operations in subsequent convolutional stages, deliberately trading a marginal loss of fine-grained spatial textures for the optimal computational efficiency required by TinyML constraints. 
+
 
 \subsection{Architecture}
 \label{subsec:architecture}
 
-The neural architecture of FALIN is strictly guided by hardware-aware design principles, focusing on minimizing both the Multiplier-Accumulator (MAC) operations and the on-chip memory footprint (BRAMs and registers). To achieve a TinyML-compliant footprint, the proposed 2D CNN is built as a highly compact, three-stage convolutional feature extractor. 
+The neural architecture of FALIN is strictly guided by hardware-aware design principles, focusing on minimizing both the MAC operations and the on-chip memory footprint (BRAMs and registers). To achieve a TinyML-compliant footprint, the proposed 2D CNN is built as a highly compact, three-stage convolutional feature extractor. 
 
 Each processing block applies standard, symmetric $3 \times 3$ convolutional kernels. While maintaining a small spatial footprint, the network carefully limits the channel expansion across its depth (e.g., from 16, to 32, and finally to a 64-dimensional descriptor size). This conservative channel scaling restricts the proliferation of trainable weights and eliminates redundant memory fetch cycles, dramatically lowering the hardware cost while preserving sufficient capacity to capture edges and transition patterns in the transformed STFT or GAF images.
 
-To detail the data flow and feature map transformations, Table~\ref{tab:architecture} presents the layer-by-layer topology of the FALIN CNN. A major architectural bottleneck for deploying CNNs on FPGAs is the rigid input resolution and the parameter explosion associated with standard Fully Connected (FC) layers. To resolve this, FALIN integrates an Adaptive Global Average Pooling layer at the end of the final block. This structural optimization ensures spatial invariance—allowing the accelerator to process varying 2D input dimensions without architectural recompilation—while acting as a heavy regularizer to combat overfitting on small-scale tabular datasets.
+To detail the data flow and feature map transformations, Table~\ref{tab:architecture} presents the layer-by-layer topology of the FALIN CNN. A major architectural bottleneck for deploying CNNs on FPGAs is the rigid input resolution and the parameter explosion associated with standard Fully Connected layers. To resolve this, FALIN integrates an Adaptive Global Average Pooling layer at the end of the final block. This structural optimization ensures spatial invariance, allowing the accelerator to process varying 2D input dimensions without architectural recompilation, while acting as a heavy regularizer to combat overfitting on small-scale tabular datasets.
 
 
 \begin{table}[htbp]
     \centering
     \caption{FALIN Hardware-Aware Convolutional Architecture}
     \label{tab:architecture}
-    \resizebox{0.80\columnwidth}{!}{%
+    \resizebox{0.75\columnwidth}{!}{%
     \begin{tabular}{lcc}
         \hline
         \textbf{Layer / Operation} & \textbf{Ker./Str.} & \textbf{Ch.} \\
@@ -183,10 +186,11 @@ To detail the data flow and feature map transformations, Table~\ref{tab:architec
     }
 \end{table}
 
-Finally, for the decision boundary, the architecture provides a flexible, dual-mode classification backend. For end-to-end hardware inference, it utilizes a lightweight linear classifier regularized by a heavy dropout layer ($p=0.5$). Alternatively, the network can bypass the linear layer entirely, acting solely as a robust feature extractor. In this hybrid mode, the dense descriptor vector is fed into an external eXtreme Gradient Boosting (XGBoost) pipeline. This configuration intent to use robust tree-based ensembles to deliver a robust model accuracy using just Look-Up-Tables, a more abundant resource in low-end FPGAs \cite{https://doi.org/10.1002/cpe.70744, khataei2025treelut}.
+Finally, for the decision boundary, the architecture provides a flexible, dual-mode classification backend. For end-to-end hardware inference, it utilizes a lightweight linear classifier regularized by a heavy dropout layer ($p=0.5$). Alternatively, the network can bypass the linear layer entirely, acting solely as a robust feature extractor. In this hybrid mode, the dense descriptor vector is fed into an external XGBoost pipeline. This configuration intent to use robust tree-based ensembles to deliver a robust model accuracy using just Look-Up-Tables, a more abundant resource in low-end FPGAs \cite{https://doi.org/10.1002/cpe.70744, khataei2025treelut}.
 
-\section{Results}
+\section{Experimental and Results}
 \label{sec:results}
+
 
 \subsection{Used Datasets}
 \label{subsec:datasets}
@@ -197,7 +201,7 @@ To evaluate the performance of FALIN, we conducted experiments using ten distinc
     \centering
     \caption{Summary of the Selected UCR Datasets}
     \label{tab:datasets}
-    \resizebox{\columnwidth}{!}{%
+    \resizebox{0.85\columnwidth}{!}{%
     \begin{tabular}{lcccc}
         \hline
         \textbf{Dataset} & \textbf{Classes} & \textbf{Samples} & \textbf{Length} & \textbf{Domain} \\
@@ -217,30 +221,97 @@ To evaluate the performance of FALIN, we conducted experiments using ten distinc
     }
 \end{table}
 
-\begin{figure*}[!pht]
-  \centering
-  \includegraphics[width=0.8\textwidth]{imgs/dumbbell_gafs_stfs.pdf}
-  \caption{}
-  \label{fig:results}
-\end{figure*}
+
+\subsection{Training Parameters and Dynamic Heuristics}
+\label{subsec:training}
+
+All neural network models and baseline architectures were implemented using the PyTorch framework, leveraging GPU acceleration for the offline training phase. To guarantee strict reproducibility across all experimental runs, deterministic behavior was enforced by locking global random seeds across the Python environment, NumPy operations, and the CUDA backend. The networks were trained for a maximum of 200 epochs using a categorical cross-entropy loss function and a mini-batch size of 64, maintaining an optimal balance between gradient stability and memory footprint.
+
+Given the extreme variance in dataset sizes within the UCR Time Series Archive—ranging from tens to thousands of temporal samples—a static training configuration is highly susceptible to severe overfitting on smaller datasets and suboptimal convergence on larger ones. To address this, the proposed framework employs a dynamic hyperparameter scaling strategy. The initial learning rate ($\eta$) for the Adam optimizer is heuristically determined based on the total number of training samples ($N_s$). It is aggressively regularized to $5 \times 10^{-5}$ for extremely small datasets ($N_s < 200$), adjusted to $1 \times 10^{-4}$ for medium datasets ($200 \le N_s < 1000$), and set to $3 \times 10^{-4}$ for more extensive datasets ($N_s \ge 1000$).
+
+Similarly, to robustly mitigate overfitting while allowing sufficient exploratory iterations, the early stopping mechanism and learning rate scheduler utilize adaptive patience thresholds scaled by the number of mini-batches per epoch ($N_b$). The training process halts automatically if the validation accuracy exhibits no improvement for $P_{stop} = \max(30, \lfloor N_b / 3 \rfloor)$ consecutive epochs. Upon triggering this dynamic early stop, the framework systematically restores the model weights associated with the highest validation performance, ensuring the exported TinyML model is strictly optimal. 
+
+For the hybrid architectures (e.g., FALIN-XGB), the convolutional backbone is frozen post-training to act as a deterministic spatial feature extractor, outputting a compact 128-dimensional descriptor vector. The subsequent XGBoost classifier is then fitted using a multi-class softmax objective function. To balance decision boundary complexity and inference latency, the tree-based backend was configured with a maximum depth of 6, 50 boosting estimators, and a learning rate of $0.1$.
+
+Figure \ref{fig:wafer_metrics_grid} illustrates the training and validation learning curves for the evaluated architectures on the Wafer dataset. As depicted in the loss trajectories, the dynamic early-stopping heuristic successfully intercepts the training process before the onset of severe overfitting, halting execution exactly when validation performance plateaus. 
+
+The custom FALIN architecture demonstrates a convergence profile, even with a high variance in training samples, validating the efficacy of its hardware-aware design and asymmetric kernels in extracting relevant spatial-temporal features from the transformed 2D representations. The MobileNetV2 baseline, while achieving a similar final accuracy, exhibits a stable convergence pattern but with a higher computational cost due to its deeper architecture.
+
+Furthermore, for the hybrid architectures (FALIN-XGB and MobileNet-XGB), these curves represent the end-to-end optimization of the convolutional backbones prior to the weights being frozen for the final decision-tree fitting. Ultimately, the consistent convergence and high validation accuracy across all models confirm a critical hypothesis of this work: the aggressive spatial downsampling to a $96 \times 96$ resolution preserves the essential discriminative features. This allows the system to satisfy the strict memory footprint and Multiplier-Accumulator (MAC) constraints of FPGA edge deployment without sacrificing predictive reliability.
+
+\begin{figure}[htbp]
+    % \centering
+    
+    % --- LINHA 1: FalinCNN ---
+    \subfloat[FalinCNN: Accuracy \label{fig:wafer_acc_falincnn}]{
+        \includegraphics[width=0.24\textwidth]{imgs/Accuracy_falincnn.png}
+    }
+    % \hfill
+    \subfloat[FalinCNN: Loss \label{fig:wafer_loss_falincnn}]{
+        \includegraphics[width=0.24\textwidth]{imgs/Loss_falincnn.png}
+    }
+    
+    \vspace{0.3cm}
+    
+    % --- LINHA 2: Falin-XGB ---
+    \subfloat[FALIN-XGB: Accuracy \label{fig:wafer_acc_falinxgb}]{
+        \includegraphics[width=0.24\textwidth]{imgs/Accuracy_falinxgb.png}
+    }
+    % \hfill
+    \subfloat[FALIN-XGB: Loss \label{fig:wafer_loss_falinxgb}]{
+        \includegraphics[width=0.24\textwidth]{imgs/Loss_falinxgb.png}
+    }
+    
+    \vspace{0.3cm}
+    
+    % --- LINHA 3: MobileNetV2 ---
+    \subfloat[MobileNetV2: Accuracy \label{fig:wafer_acc_mobiv2}]{
+        \includegraphics[width=0.24\textwidth]{imgs/Accuracy_mobiv2.png}
+    }
+    % \hfill
+    \subfloat[MobileNetV2: Loss \label{fig:wafer_loss_mobiv2}]{
+        \includegraphics[width=0.24\textwidth]{imgs/Loss_mobiv2.png}
+    }
+    
+    \vspace{0.3cm}
+    
+    % --- LINHA 4: MobileNet-XGB ---
+    \subfloat[MobileNet-XGB: Accuracy \label{fig:wafer_acc_mobixgb}]{
+        \includegraphics[width=0.24\textwidth]{imgs/Accuracy_mobixgb.png}
+    }
+    % \hfill
+    \subfloat[MobileNet-XGB: Loss \label{fig:wafer_loss_mobixgb}]{
+        \includegraphics[width=0.24\textwidth]{imgs/Loss_mobixgb.png}
+    }
+    
+    \caption{Training and validation metrics (Accuracy and Loss) for the Wafer dataset across different architectures. The dynamic early-stopping mechanism ensures convergence without severe overfitting despite the dataset constraints.}
+    \label{fig:wafer_metrics_grid}
+\end{figure}
 
 \subsection{Performance and Accuracy Analysis}
 \label{subsec:performance_analysis}
 
-The experimental results evaluating classification accuracy across the ten selected UCR datasets using both Gramian Angular Fields (GAFS) and Short-Time Fourier Transform (STFS) representations are illustrated in Fig.~\ref{fig:results}, alongside a comprehensive breakdown of hardware complexity in terms of Multiplier-Accumulator (MAC) operations.
+\begin{figure*}[!pht]
+  \centering
+  \includegraphics[width=\textwidth]{imgs/fig1_pareto_grid.pdf}
+  \caption{Pareto frontier evaluating accuracy versus computational cost per dataset. The markers indicate the model types and their respective Multiplier-Accumulator (MAC) operations: FalinCNN (22.6M MACs) in blue, Falin\_XGB (22.6M MACs) in green, MobileNetV2 (53.7M MACs) in orange, and MobileNet\_XGB (15.6M MACs) in purple. The baseline LSTM-FCN \cite{karim2018lstm} is represented by a red star. Filled markers denote Gramian Angular Fields (GAFS) transformations, while open markers denote Short-Time Fourier Transform (STFS) transformations. The green shaded regions represent the Pareto optimal zones for TinyML compliance.}
+  \label{fig:results}
+\end{figure*}
+
+
+The experimental results evaluating the trade-off between classification accuracy and computational cost across the ten selected UCR datasets using both GAFS and STFS representations are illustrated in Fig.~\ref{fig:results}. The grid visualizes the Pareto frontiers for each dataset, highlighting the optimal balance between accuracy (y-axis) and hardware complexity (x-axis, measured in MAC operations).
 
 \subsubsection{Classification Accuracy}
-As observed in the top and middle plots of Fig.~\ref{fig:results}, the baseline LSTM-FCN model consistently achieves high accuracy across most datasets, establishing a strict upper bound. However, the proposed FALIN framework demonstrates highly competitive performance, particularly on datasets characterized by strong periodic or spectral components. 
+As observed in the dataset-specific plots of Fig.~\ref{fig:results}, the baseline LSTM-FCN model (represented by the red star) consistently achieves high accuracy across most datasets, establishing a strict upper bound. However, the proposed FALIN framework demonstrates highly competitive performance within the TinyML-compliant footprint, frequently landing inside the shaded green Pareto optimal zones, particularly on datasets characterized by strong periodic or spectral components. 
 \begin{itemize}
-    \item \textbf{High-Performance Scenarios:} For datasets such as \textit{ECG5000}, \textit{FordA}, \textit{LightCurves}, and \textit{Wafer}, both FALIN and MobileNetV2 configurations track the baseline accuracy almost perfectly (reaching near 100\% in several cases) under both GAFS and STFS transformations. This validates that 1D-to-2D spatial mappings successfully preserve critical discriminative temporal features.
-    \item \textbf{Impact of the Hybrid Classifier (XGBoost):} The integration of the XGBoost backend yields significant accuracy recoveries in challenging structural datasets. For instance, in the \textit{Mallat} dataset under STFS, the standard \textit{FalinCNN} suffers from severe performance degradation (~15\% accuracy); however, the hybrid \textit{Falin\_XGB} architecture recovers this drastically, achieving over 75\% accuracy. A similar trend is observed in the \textit{FacesUCR} dataset, proving that tree-based ensembles operating on lightweight CNN-extracted features provide a much more robust decision boundary than standard linear layers when data scale or structural complexity is an issue.
+    \item \textbf{High-Performance Scenarios:} For datasets such as \textit{ECG5000}, \textit{Wafer}, and \textit{FordA}, the lightweight configurations track the baseline accuracy very closely (reaching near 100\% in several cases) under both GAFS and STFS transformations. This validates that 1D-to-2D spatial mappings successfully preserve critical discriminative temporal features without requiring heavy sequential models.
+    \item \textbf{Impact of the Hybrid Classifier (XGBoost):} The integration of the XGBoost backend yields significant accuracy recoveries in challenging structural datasets. For instance, in the \textit{Mallat} dataset, the standard \textit{FalinCNN} suffers from severe performance degradation (falling near 10\% accuracy); however, the hybrid \textit{Falin\_XGB} architecture recovers a substantial portion of this loss, pushing accuracy above 50\%. A similar upward trend is observed in datasets like \textit{FacesUCR} and \textit{TwoPatterns}, proving that tree-based ensembles operating on lightweight CNN-extracted features provide a much more robust decision boundary than standard linear layers when data scale or structural complexity is an issue.
 \end{itemize}
 
 \subsubsection{Hardware Complexity and TinyML Feasibility}
-The core advantage of the FALIN framework becomes evident when inspecting the hardware complexity plot (bottom of Fig.~\ref{fig:results}). 
-While the sequential LSTM-FCN baseline achieves high accuracy, it introduces a prohibitive computational burden for resource-constrained edge devices. For long-sequence datasets like \textit{Mallat} and \textit{LightCurves}, the LSTM-FCN architecture demands nearly 270 Million MAC operations per inference.
+The core advantage of the FALIN framework becomes evident when observing the horizontal axis of the Pareto plots. While the sequential LSTM-FCN baseline achieves high accuracy, it introduces a prohibitive computational burden for resource-constrained edge devices, often positioned far to the right (demanding nearly 270 Million MAC operations per inference for long sequences).
 
-In stark contrast, both \textit{FalinCNN} and \textit{Falin\_XGB} maintain an extremely compact and predictable computational footprint, consistently requiring well below 25 Million MACs across all evaluated datasets. This represents an order-of-magnitude reduction in arithmetic complexity (up to $10\times$ fewer MACs compared to the baseline). Furthermore, by shifting the decision head from parameter-heavy fully connected layers to Look-Up-Table (LUT) friendly tree structures in the XGBoost variants, FALIN successfully minimizes on-chip memory access cycles. This trade-off—sacrificing a marginal percentage of accuracy in exchange for a massive reduction in computational load—strongly supports the viability of FALIN for strict, real-time TinyML and FPGA-based edge deployment.
+In stark contrast, the proposed architectures maintain an extremely compact and predictable computational footprint. Both \textit{FalinCNN} and \textit{Falin\_XGB} consistently require exactly 22.6 Million MACs, while the \textit{MobileNet\_XGB} variant drops even further to 15.6 Million MACs. This represents an order-of-magnitude reduction in arithmetic complexity compared to the baseline. Furthermore, by shifting the decision head from parameter-heavy fully connected layers to Look-Up-Table (LUT) friendly tree structures in the XGBoost variants, FALIN successfully minimizes on-chip memory access cycles. Falling securely within the green shaded Pareto regions, this trade-off, sacrificing a marginal percentage of accuracy in exchange for a massive reduction in computational load, strongly supports the viability of FALIN for strict, real-time TinyML and FPGA-based edge deployment.
 
 \section{Conclusion}
 \label{sec:conclusions}
