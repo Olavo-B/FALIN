@@ -19,14 +19,14 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 # Import the new lightweight custom models (Hardware Optimized)
-from falin_cnn import FalinCNN
-from falin_xgb import PipelineFalinXGB
+from models.falin_cnn import FalinCNN
+from models.falin_xgb import PipelineFalinXGB
 
 # Import the old models (Baselines for comparison)
 try:
-    from mobilenetv2 import MobileNetV2
-    from efficient import EfficientNetCustom
-    from mobilenet_xgb import PipelineMobileNetXGB
+    from models.mobilenetv2 import MobileNetV2
+    from models.efficient import EfficientNetCustom
+    from models.mobilenet_xgb import PipelineMobileNetXGB
 except ImportError:
     print("[Warning] Baseline models (MobileNet/EfficientNet) not found. Make sure their files exist if you want to run them.")
 
@@ -160,21 +160,25 @@ def train_standard_model(model, train_loader, test_loader, device, model_name, s
     # --- LOAD BEST WEIGHTS BEFORE RETURNING ---
     model.load_state_dict(best_model_wts)
     
+    
     return model, best_acc, history
 
-def run_experiment(train_loader, test_loader, num_classes, device, results_dir, 
-                   epochs, models_to_run, descriptor_size, learning_rate,
+def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
+                   dataset_name, epochs, models_to_run, descriptor_size, learning_rate,
                    n_estimators, max_depth, learning_rate_xgb,
                    scheduler_patience, early_stop_patience, in_channels=1,
+                   img_strategy='GAF', seq_length=0, orig_classes=[0],
                    ):
     """
     Main function to orchestrate the training of selected models.
     """
     results = {}
-    dataset_name = os.path.basename(os.path.normpath(results_dir))
-    
-    
-    
+    # 2026-07-23 - Olavo: dataset_name is now passed explicitly instead of being
+    # inferred from os.path.basename(results_dir), which returned "run_N" (the
+    # results_dir's last path component) instead of the actual dataset name,
+    # since results_dir is .../<dataset_name>/run_N.
+
+
     # Função auxiliar para extrair previsões de modelos PyTorch padrão
     def get_predictions(model, loader):
         model.eval()
@@ -190,6 +194,20 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
                 all_preds.extend(preds.cpu().numpy())
                 all_labels.extend(labels.numpy())
         return all_labels, all_preds
+    
+    # 2026-07-23 10:21:46 - Olavo: New aux function to save checkpoint
+    def save_model_checkpoint(model_to_save, model_name):
+        checkpoint_path = os.path.join(results_dir, f"{model_name}_checkpoint.pth")
+        torch.save({
+            'state_dict': model_to_save.state_dict(),
+            'dataset': dataset_name,
+            'img_strategy': img_strategy,
+            'descriptor_size': descriptor_size,
+            'seq_length': seq_length,
+            'num_classes': num_classes,
+            'label_classes': list(orig_classes),
+        }, checkpoint_path)
+        print(f"[{model_name}] Checkpoint salvo em: {checkpoint_path}")
 
     # =========================================================================
     # NEW MODELS (TINYML / FPGA OPTIMIZED)
@@ -224,6 +242,9 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
         )
         tb_writer_xgb.close()
         
+        # 2026-07-23 10:23:08 - Olavo : Saving the model
+        save_model_checkpoint(pipeline_xgb.cnn_extractor, "Falin_XGB_CNN_Extractor")
+        
         pipeline_xgb.train_xgboost(train_loader, test_loader)
         
         # Extrair previsões para devolver à main.py
@@ -253,8 +274,12 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
         )
         tb_writer_cnn.close()
         
+        save_model_checkpoint(model_cnn, "FalinCNN")
+        
         y_true, y_pred = get_predictions(model_cnn, test_loader)
         results['FalinCNN'] = {'y_true': y_true, 'y_pred': y_pred, 'model': model_cnn}
+
+    # 2026-07-22 21:44:00 - Olavo : Add Faling 
 
     # =========================================================================
     # LEGACY BASELINE MODELS
@@ -288,6 +313,7 @@ def run_experiment(train_loader, test_loader, num_classes, device, results_dir,
             lr=learning_rate
         )
         tb_writer_mxgb.close()
+        
         
         pipeline_mxgb.train_xgboost(train_loader, test_loader)
         

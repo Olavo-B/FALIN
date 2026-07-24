@@ -15,7 +15,7 @@ import os
 
 # Imports the base MobileNetV2 created previously
 try:
-    from mobilenetv2 import MobileNetV2
+    from models.mobilenetv2 import MobileNetV2
 except ImportError:
     raise ImportError("Make sure mobilenet_v2.py is in the same directory.")
 

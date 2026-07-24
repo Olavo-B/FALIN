@@ -5,7 +5,7 @@
 #  * XGBoost (Classifier) optimized for FPGA deployment.
 # /*****************************************************************************/
 
-from falin_cnn import FalinCNN
+from models.falin_cnn import FalinCNN
 import torch
 import torch.nn as nn
 import numpy as np

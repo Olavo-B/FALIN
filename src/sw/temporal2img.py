@@ -86,11 +86,10 @@ class Temporal2ImageDataset(Dataset):
         else:
             normalized_sample = ((temporal_sample - min_val) / (max_val - min_val)) * 2 - 1
             
-        normalized_sample = np.clip(normalized_sample, -1.0, 1.0)
-        phi = np.arccos(normalized_sample)
+        x_norm = np.clip(normalized_sample, -1.0, 1.0)
         
-        cos_phi = np.cos(phi)
-        sin_phi = np.sin(phi)
+        cos_phi = x_norm
+        sin_phi = np.sqrt(1.0 - x_norm ** 2)
         
         gaf_matrix = np.outer(cos_phi, cos_phi) - np.outer(sin_phi, sin_phi)
         return gaf_matrix.astype(np.float32)

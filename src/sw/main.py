@@ -34,18 +34,20 @@ from trainer import run_experiment
 
 
 
+
+
 # ---- Global Constants and Configurations ----
 # (You can adjust these as needed, or move them to a config file)
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-REDUNDANCE = 5 # Number of times to repeat each dataset (for testing purposes, set to 1 for no redundancy)
+REDUNDANCE = 1 # Number of times to repeat each dataset (for testing purposes, set to 1 for no redundancy)
 
 EPOCHS = 200
 BATCH_SIZE = 64
 LEARNING_RATE = 1e-4
-MODELS_TO_RUN = ['FalinCNN', 'Falin_XGB', 'MobileNetV2', 'MobileNet_XGB']  # Options: 'MobileNetV2', 'EfficientNet', 'MobileNet_XGB'
-IMG_STRATEGY = 'stft'  # Options: 'gaf', 'stft'
+MODELS_TO_RUN = ['FalinCNN']  # Options:  'Falin_XGB', 'MobileNetV2', 'MobileNet_XGB'
+IMG_STRATEGY = 'gaf'  # Options: 'gaf', 'stft'
 
 # XGBoost Hyperparameters (can be tuned for better performance)
 N_ESTIMATORS = 50
@@ -82,21 +84,20 @@ DATASET = [
 
 
 # Intersection of the 10 biggest datasets between LSTM-FCN paper and UCR Archive (for better comparison with baselines):
-'FacesUCR',
-'Mallat',
-'Yoga',
-'FordB',
-'FordA',
-'TwoPatterns',
-'ECG5000',
-'Wafer',
-'StarLightCurves',
+# 'FacesUCR',
+# 'Mallat',
+# 'Yoga',
+# 'FordB',
+# 'FordA',
+# 'TwoPatterns',
+# 'ECG5000',
+# 'Wafer',
+# 'StarLightCurves',
 'ElectricDevices',
 
 
 ]
  # Change this to the dataset you want to run (e.g., 'InlineSkate', 'ElectricDevices', etc.)
-
 
 # -------------------------------------------
 
@@ -273,7 +274,7 @@ def main():
             else:                     # FordA/B (3600+), ElectricDevices (8926)
                 return 3e-4
 
-        def get_patience_rate(train_lader: int) -> int:
+        def get_patience_rate(train_lader: DataLoader) -> tuple[int, int]:
             n_batches = len(train_loader)
             scheduler_patience = max(20, n_batches // 5)  # ElectricDevices → max(20, 27) = 27
             early_stop_patience = max(30, n_batches // 3)  # ElectricDevices → max(30, 46) = 46
@@ -311,11 +312,34 @@ def main():
         print(f"· Sequence length: {seq_length}")
         print(f"· Image Strategy: {IMG_STRATEGY.upper()}")
         print(f"· Input image size: {eg_img.shape[1]}x{eg_img.shape[2]} (Channels: {eg_img.shape[0]})")
+
+        # --- HLS GOLDEN VECTOR DUMP ---
+        golden_dir = os.path.join(ds_results_dir, "hls_golden_vectors")
+        os.makedirs(golden_dir, exist_ok=True)
+        num_golden_samples = 10
+        
+        print(f"\n[*] [HLS Verification] Extracting {num_golden_samples} test samples ({IMG_STRATEGY}, {eg_img.shape[1]}x{eg_img.shape[2]}) for HLS...")
+        
+        # Access the dataset directly from the loader
+        test_dataset_ref = test_loader.dataset 
+        for j in range(min(num_golden_samples, len(test_dataset_ref))):
+            data_tensor, label = test_dataset_ref[j]
             
+            if isinstance(data_tensor, torch.Tensor):
+                data_np = data_tensor.detach().cpu().numpy()
+            else:
+                data_np = np.array(data_tensor)
+            
+            file_name = f"gaf_sample_{j:04d}_label_{label}.npy"
+            file_path = os.path.join(golden_dir, file_name)
+            np.save(file_path, data_np)
+
+        print(f"[*] [HLS Verification] Golden vectors saved to: {golden_dir}\n")
         
         # --- TRAINING (calls trainer.py) ---
         results_dict = run_experiment(
-            train_loader, test_loader, num_classes, device, ds_results_dir, 
+            train_loader, test_loader, num_classes, device, ds_results_dir,
+            dataset_name=dataset_name,
             epochs=EPOCHS,
             models_to_run=MODELS_TO_RUN,
             descriptor_size=DESCRIPTOR_SIZE,
@@ -324,7 +348,10 @@ def main():
             learning_rate_xgb=LEARNING_RATE_XGB,
             learning_rate = adaptive_lr,
             early_stop_patience = early_stop_patience,
-            scheduler_patience = scheduler_patience
+            scheduler_patience = scheduler_patience,
+            img_strategy=IMG_STRATEGY,
+            seq_length=seq_length,
+            orig_classes=orig_classes
         )
         
             
