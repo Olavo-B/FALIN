@@ -10,9 +10,17 @@
 #  * behaves identically to the original float training run, just starting
 #  * from the converged float weights instead of from scratch.
 #  * See Task 5 of misc/docs/fpga_implementation_plan.md.
+#  *
+#  * Multi-dataset support (added 2026-07-24): DATASET_NAME is now read from
+#  * argv[1] (defaulting to ElectricDevices for backward compat) instead of
+#  * being hardcoded, so this same script runs unchanged for any of the 10
+#  * UCR datasets used in the paper - just `python qat_finetune.py <Dataset>`.
+#  * Requires main.py to have already produced
+#  * results/<Dataset>/run_1/FalinCNN_checkpoint.pth (Task 1/2).
 # /*****************************************************************************/
 
 import os
+import sys
 import torch
 from torch.utils.data import DataLoader
 
@@ -20,24 +28,29 @@ from main import load_and_encode_ucr, UCRDatasetWrapper
 from models.falin_cnn import FalinCNN
 from models.falin_cnn_quant import FalinCNNQuant
 from trainer import train_standard_model
+from utils.config_loader import load_config
 
-# ---- Config (mirrors the frozen hardware target: ElectricDevices + GAF) ----
+CONFIG = load_config()
+
+# ---- Config (dataset comes from argv; hyperparameters from config.json's
+# "qat" section - see src/sw/utils/config_loader.py) ----
 BASE_DIR = os.path.join(os.path.dirname(__file__), '..', '..')
-DATASET_NAME = 'ElectricDevices'
+DATASET_NAME = sys.argv[1] if len(sys.argv) > 1 else 'ElectricDevices'
 CHECKPOINT_PATH = os.path.join(BASE_DIR, 'results', DATASET_NAME, 'run_1', 'FalinCNN_checkpoint.pth')
 OUTPUT_CHECKPOINT_PATH = os.path.join(BASE_DIR, 'results', DATASET_NAME, 'run_1', 'FalinCNNQuant_checkpoint.pth')
 UCR_ARCHIVE_PATH = os.path.join(BASE_DIR, 'misc', 'data', 'UCRArchive_2018')
 
-WEIGHT_BIT_WIDTH = 8
-ACT_BIT_WIDTH = 8
+QAT_CFG = CONFIG['qat']
+WEIGHT_BIT_WIDTH = QAT_CFG['weight_bit_width']
+ACT_BIT_WIDTH = QAT_CFG['act_bit_width']
 
 # Fine-tuning from an already-converged float model needs a much lower LR
 # and far fewer epochs than training from scratch.
-QAT_EPOCHS = 30
-QAT_LR = 1e-5
-SCHEDULER_PATIENCE = 5
-EARLY_STOP_PATIENCE = 10
-BATCH_SIZE = 64
+QAT_EPOCHS = QAT_CFG['epochs']
+QAT_LR = QAT_CFG['learning_rate']
+SCHEDULER_PATIENCE = QAT_CFG['scheduler_patience']
+EARLY_STOP_PATIENCE = QAT_CFG['early_stop_patience']
+BATCH_SIZE = QAT_CFG['batch_size']
 
 
 def main():
@@ -101,8 +114,7 @@ def main():
 
     print(f"\n[*] QAT fine-tuning complete. Best INT{WEIGHT_BIT_WIDTH} test accuracy: {best_acc * 100:.2f}%")
     print(f"[*] Compare against the float32 baseline in "
-          f"results/{DATASET_NAME}/run_1/metrics_summary.txt (71.74% for FalinCNN) "
-          f"before moving to Task 6/7.")
+          f"results/{DATASET_NAME}/run_1/metrics_summary.txt before moving to export_cnn_weights.py.")
 
     torch.save({
         'state_dict': quant_model.state_dict(),

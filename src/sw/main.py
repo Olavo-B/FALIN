@@ -31,9 +31,9 @@ except ImportError:
 
 from temporal2img import Temporal2ImageDataset
 from trainer import run_experiment
+from utils.config_loader import load_config
 
-
-
+CONFIG = load_config()
 
 
 # ---- Global Constants and Configurations ----
@@ -41,63 +41,30 @@ from trainer import run_experiment
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-REDUNDANCE = 1 # Number of times to repeat each dataset (for testing purposes, set to 1 for no redundancy)
-
-EPOCHS = 200
-BATCH_SIZE = 64
-LEARNING_RATE = 1e-4
-MODELS_TO_RUN = ['FalinCNN']  # Options:  'Falin_XGB', 'MobileNetV2', 'MobileNet_XGB'
-IMG_STRATEGY = 'gaf'  # Options: 'gaf', 'stft'
-
-# XGBoost Hyperparameters (can be tuned for better performance)
-N_ESTIMATORS = 50
-MAX_DEPTH = 6
-LEARNING_RATE_XGB = 0.1
-DESCRIPTOR_SIZE = 128
-
-DATASET = [
-#   'Beef',
-#   'BeetleFly',
-#   'Ham',
-#   'SwedishLeaf',
-#   'FordA',
-#   'FordB',
-#   'Haptics',
-#   'Symbols',
-#   'Yoga',
-#   'OliveOil',
-#   'ECGFiveDays',
-#   'HandOutlines',
-#   'Adiac',
-#   'Fish',
-#   'Phoneme',
-#   'Strawberry',
-#   'Computers',
-#   'Wine',
-#   'StarLightCurves',
-#   'FaceAll',
-#   'OSULeaf',
-#   'MoteStrain',
-#   'Plane',
-#   'Wafer',
-#   'CBF',
+# All software hyperparameters now live in config.json (repo root) - see
+# src/sw/utils/config_loader.py. Kept as module-level names here (instead of
+# threading CONFIG through every call site) to minimize the diff against the
+# rest of this file.
+REDUNDANCE = CONFIG['software']['redundance']# Number of times to repeat each dataset (for testing purposes, set to 1 for no redundancy)
 
 
-# Intersection of the 10 biggest datasets between LSTM-FCN paper and UCR Archive (for better comparison with baselines):
-# 'FacesUCR',
-# 'Mallat',
-# 'Yoga',
-# 'FordB',
-# 'FordA',
-# 'TwoPatterns',
-# 'ECG5000',
-# 'Wafer',
-# 'StarLightCurves',
-'ElectricDevices',
+EPOCHS = CONFIG['software']['epochs']
+BATCH_SIZE = CONFIG['software']['batch_size']
+MODELS_TO_RUN = CONFIG['software']['models_to_run']
+IMG_STRATEGY = CONFIG['software']['img_strategy']
+DESCRIPTOR_SIZE = CONFIG['software']['descriptor_size']
 
+# XGBoost Hyperparameters (kept for the future/extended paper - XGBoost is
+# deferred from the current SBESC submission, see fpga_implementation_plan.md)
+N_ESTIMATORS = CONFIG['software']['xgboost']['n_estimators']
+MAX_DEPTH = CONFIG['software']['xgboost']['max_depth']
+LEARNING_RATE_XGB = CONFIG['software']['xgboost']['learning_rate']
 
-]
- # Change this to the dataset you want to run (e.g., 'InlineSkate', 'ElectricDevices', etc.)
+# The 10 UCR datasets used in the paper (config.json's "datasets" list) -
+# FALIN's architecture (Table I) is identical across all of them, only
+# NUM_CLASSES and the trained weights differ (see Task 8 of
+# misc/docs/fpga_implementation_plan.md).
+DATASET = list(CONFIG['datasets'])
 
 # -------------------------------------------
 
@@ -209,7 +176,7 @@ def save_hardware_complexity(models_dict, seq_length, save_dir, device):
             f.write("\n" + "-" * 65 + "\n")
             
 def main():
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     ucr_archive_path = os.path.join(base_dir, 'misc', 'data', 'UCRArchive_2018')
     global_results_dir = os.path.join(base_dir, 'results')
     
@@ -231,13 +198,13 @@ def main():
             datasets = [d for d in datasets if d == DATASET] * REDUNDANCE
             
     
-    print(f"[*] Datasets encontrados: {datasets}")
+    print(f"[*] Datasets: {datasets}")
                         
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[*] A usar o dispositivo: {device}\n")
+    print(f"[*] Using device: {device}\n")
 
-    pbar_datasets = tqdm(datasets, desc="Progresso Global (Datasets)", position=0)
+    pbar_datasets = tqdm(datasets, desc="Global Progress (Datasets)", position=0)
     for i, dataset_name in enumerate(pbar_datasets):
         
         redundance_idx = (i // len(DATASET)) + 1 # Calculate the redundancy index
@@ -256,28 +223,32 @@ def main():
         
         # Check if the size of the train set is less than the batch size, and if so, adjust the batch size to avoid errors in DataLoader
         current_batch_size = min(BATCH_SIZE, len(X_train))
-        print(f"[*] Verifying batch size compatibility: Train samples = {len(X_train)}, Batch size = {current_batch_size}")
+        print(f"\n[*] Verifying batch size compatibility: Train samples = {len(X_train)}, Batch size = {current_batch_size}")
         
         
         train_loader = DataLoader(UCRDatasetWrapper(X_train, y_train, IMG_STRATEGY), batch_size=current_batch_size, shuffle=True, drop_last=True)
         test_loader = DataLoader(UCRDatasetWrapper(X_test, y_test, IMG_STRATEGY), batch_size=current_batch_size   , shuffle=False)
         
+        lr_cfg = CONFIG['software']['adaptive_learning_rate']
+        patience_cfg = CONFIG['software']['adaptive_patience']
+
         def get_learning_rate(n_samples: int) -> float:
             """
             Scale LR with dataset size. Small datasets need more regularization
-            (lower LR); large datasets can afford faster learning.
+            (lower LR); large datasets can afford faster learning. Thresholds
+            come from config.json's software.adaptive_learning_rate.
             """
-            if n_samples < 200:       # Mallat (55), FacesUCR (200)
-                return 5e-5
-            elif n_samples < 1000:    # Yoga (300), ECG5000 (500), Wafer (1000)
-                return 1e-4
-            else:                     # FordA/B (3600+), ElectricDevices (8926)
-                return 3e-4
+            if n_samples < lr_cfg['small_dataset_threshold']:       # Mallat (55), FacesUCR (200)
+                return lr_cfg['small_lr']
+            elif n_samples < lr_cfg['medium_dataset_threshold']:    # Yoga (300), ECG5000 (500), Wafer (1000)
+                return lr_cfg['medium_lr']
+            else:                                                   # FordA/B (3600+), ElectricDevices (8926)
+                return lr_cfg['large_lr']
 
         def get_patience_rate(train_lader: DataLoader) -> tuple[int, int]:
             n_batches = len(train_loader)
-            scheduler_patience = max(20, n_batches // 5)  # ElectricDevices → max(20, 27) = 27
-            early_stop_patience = max(30, n_batches // 3)  # ElectricDevices → max(30, 46) = 46
+            scheduler_patience = max(patience_cfg['scheduler_min'], n_batches // patience_cfg['scheduler_batch_divisor'])
+            early_stop_patience = max(patience_cfg['early_stop_min'], n_batches // patience_cfg['early_stop_batch_divisor'])
             return (scheduler_patience, early_stop_patience)
 
         # Inside the dataset loop, after load_and_encode_ucr:
@@ -316,7 +287,7 @@ def main():
         # --- HLS GOLDEN VECTOR DUMP ---
         golden_dir = os.path.join(ds_results_dir, "hls_golden_vectors")
         os.makedirs(golden_dir, exist_ok=True)
-        num_golden_samples = 10
+        num_golden_samples = CONFIG['hardware']['num_testbench_samples']
         
         print(f"\n[*] [HLS Verification] Extracting {num_golden_samples} test samples ({IMG_STRATEGY}, {eg_img.shape[1]}x{eg_img.shape[2]}) for HLS...")
         
