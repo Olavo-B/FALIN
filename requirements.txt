@@ -20,4 +20,10 @@ scikit-learn>=0.24.0
 thop
 
 # FPGA quantization-aware training (see misc/docs/fpga_implementation_plan.md)
-brevitas>=0.10.0 
+brevitas>=0.10.0
+
+# FPGA CNN HLS conversion (Task 7 - QONNX export + hls4ml, see misc/docs/fpga_implementation_plan.md)
+qonnx
+hls4ml[profiling]
+onnx
+onnxoptimizer 
