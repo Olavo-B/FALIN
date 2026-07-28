@@ -1,0 +1,40 @@
+# /*****************************************************************************/
+# * File: synth.ys
+# * Author: Olavo Alves Barros Silva
+# * Contact: olavo.barros@ufv.com
+# * Date: 2026-07-23
+# * Description: Yosys script for falin_cnn_top - coarse area/cell-count
+# * check, not a full technology-mapped synthesis. Run with:
+# *   cd src/hw/cnn && yosys synth.ys
+# *
+# * Same rationale as src/hw/gaf_encoder/synth.ys: stops before
+# * `techmap`/`abc`. This design has several large ROMs (classifier weight:
+# * 7*128=896 entries, conv3 weight: 128*32*9=36864 entries) plus the
+# * conv/pool/GAP module hierarchies - full gate-level optimization would be
+# * even slower here than for the GAF encoder. `stat` right after
+# * `memory_collect` reports raw cell counts ($mul, $mem, etc.) without
+# * expanding them. Real technology-mapped synthesis (LUTs/FFs/DSPs/BRAMs on
+# * the actual xc7z020) is Vivado's job later (Task 8 of
+# * misc/docs/fpga_implementation_plan.md), not Yosys's here.
+# /*****************************************************************************/
+
+read_verilog -sv conv_bn_relu_layer.v
+read_verilog -sv maxpool2x2.v
+read_verilog -sv global_avg_pool.v
+read_verilog -sv classifier.v
+read_verilog -sv falin_cnn_top.v
+hierarchy -check -top falin_cnn_top
+
+proc
+opt
+memory_collect
+
+tee -o area_report.json stat -json
+stat
+
+# --- Further steps (commented out - only if a real gate-level estimate is
+# needed later; expect this to be considerably slower than the GAF encoder) ---
+# synth -flatten
+# write_blif -gates falin_cnn_top.blif
+# abc -liberty <path-to-cell-library>.lib
+# stat

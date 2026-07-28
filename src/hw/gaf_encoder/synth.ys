@@ -1,0 +1,35 @@
+# /*****************************************************************************/
+# * File: synth.ys
+# * Author: Olavo Alves Barros Silva
+# * Contact: olavo.barros@ufv.com
+# * Date: 2026-07-23
+# * Description: Yosys script for gaf_encoder - coarse area/cell-count check,
+# * not a full technology-mapped synthesis. Run with:
+# *   cd src/hw/gaf_encoder && yosys synth.ys
+# *
+# * Deliberately stops before `techmap`/`abc`: 192 parallel 12x12 multipliers
+# * (the outer-product stage) plus the 4096-entry sin_phi ROM make full
+# * gate-level logic optimization very slow, and it isn't needed for a
+# * quick sanity check anyway - `stat` right after `memory_collect` reports
+# * raw cell counts ($mul, $mem, etc.) without expanding them. Real
+# * technology-mapped synthesis (LUTs/FFs/DSPs on the actual xc7z020) is
+# * Vivado's job later (Task 8 of misc/docs/fpga_implementation_plan.md),
+# * not Yosys's here.
+# /*****************************************************************************/
+
+read_verilog -sv gaf_encoder.v
+hierarchy -check -top gaf_encoder
+
+proc
+opt
+memory_collect
+
+tee -o area_report.json stat -json
+stat
+
+# --- Further steps (commented out - only if a real gate-level estimate is
+# needed later; expect this to be slow given the multiplier count above) ---
+# synth -flatten
+# write_blif -gates gaf_encoder.blif
+# abc -liberty <path-to-cell-library>.lib
+# stat
